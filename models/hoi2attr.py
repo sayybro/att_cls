@@ -31,14 +31,14 @@ class Attrclassifier(nn.Module):
             samples = nested_tensor_from_tensor_list(samples)
         features, pos = self.backbone(samples)
         src, mask = features[-1].decompose()
-        src = src.flatten(2).permute(2, 0, 1)
-        pos_embed = pos[-1].flatten(2).permute(2, 0, 1)
-        mask = mask.flatten(1)
         import pdb; pdb.set_trace()
-        memory = self.transformer_encoder(model.input_proj(src), mask, pos=pos_embed) #mask: Optional[Tensor] = None,src_key_padding_mask: Optional[Tensor] = None,pos: Optional[Tensor] = None
-        encoder_output = memory.permute(1, 2, 0)
+        src = model.input_proj(src) #torch.Size([8, 256, 32, 32])
+        src = src.flatten(2).permute(2, 0, 1) #torch.Size([1024, 8, 256])
+        pos_embed = pos[-1].flatten(2).permute(2, 0, 1) #torch.Size([1024, 8, 256])
+        mask = mask.flatten(1) #torch.Size([8, 1024])
+        memory = self.transformer_encoder(src, src_key_padding_mask=mask, pos=pos_embed) 
+        encoder_output = memory.permute(1, 2, 0) #torch.Size([8, 256, 1024])
 
-#        import pdb; pdb.set_trace()
 
 def build_attrclass(args, backbone, transformer):
     return Attrclassifier(
