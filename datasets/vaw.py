@@ -42,30 +42,9 @@ class VAWDetection(torch.utils.data.Dataset):
                             58, 59, 60, 61, 62, 63, 64, 65, 67, 70,
                             72, 73, 74, 75, 76, 77, 78, 79, 80, 81,
                             82, 84, 85, 86, 87, 88, 89, 90)
-        
-    ############################################################################
-    # Number Method
-    ############################################################################
-    # def get_metadata(self):
-    #     meta = builtin_meta._get_coco_instances_meta()
-    #     self.COCO_CLASSES = meta['coco_classes']
-    #     self._valid_obj_ids = [id for id in meta['thing_dataset_id_to_contiguous_id'].keys()]
-    #     self._valid_att_names= [k for k,v in self.attribute_names.items()]
-    #     self._valid_att_ids = [v for k,v in self.attribute_names.items()]
-    
-
-    # def get_valid_obj_ids(self):
-    #     return self._valid_obj_ids
-
-    # def get_attributes(self):
-    #     return self._valid_att_names
-
-    # def num_category(self):
-    #     return len(self.COCO_CLASSES)
 
     def num_attributes(self):
         return len(self._valid_att_ids)
-    ############################################################################
 
     def __len__(self):
         return len(self.annotations)
@@ -221,7 +200,7 @@ def make_vaw_transforms(image_set):
 
 
 def build(image_set, args):
-    # root = Path(args.data_path)
+
     root = Path('data/vaw')
     assert root.exists(), f'provided HOI path {root} does not exist'
     PATHS = {

@@ -4,4 +4,4 @@ params/**
 checkpoints/**
 .venv/
 *.pth
-!.gitkeep
+!.gitkeep.venv

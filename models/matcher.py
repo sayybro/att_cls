@@ -87,6 +87,10 @@ class HungarianMatcher(nn.Module):
         return [(torch.as_tensor(i, dtype=torch.int64), torch.as_tensor(j, dtype=torch.int64)) for i, j in indices]
 
 
+class hoi2attr(nn.Module):
+    def __init__(self):
+       return 
+
 class HungarianMatcherHOI(nn.Module):
 
     def __init__(self, cost_obj_class: float = 1, cost_verb_class: float = 1, cost_bbox: float = 1,
@@ -100,7 +104,9 @@ class HungarianMatcherHOI(nn.Module):
 
     @torch.no_grad()
     def forward(self, outputs, targets):
-        import pdb; pdb.set_trace()
+        #targets : dict_keys(['orig_size', 'size', 'boxes', 'labels', 'pos_att_classes', 'neg_att_classes', 'iscrowd', 'area', 'type', 'dataset'])
+        #outputs : dict_keys(['pred_obj_logits', 'pred_verb_logits', 'pred_sub_boxes', 'pred_obj_boxes']) -> inference 할 때만 사용
+        #import pdb; pdb.set_trace()
         bs, num_queries = outputs['pred_obj_logits'].shape[:2]
 
         out_obj_prob = outputs['pred_obj_logits'].flatten(0, 1).softmax(-1)

@@ -43,21 +43,15 @@ def train_one_epoch(model: torch.nn.Module, attribute_classifier: torch.nn.Modul
     print_freq = 10
 
     for samples, targets in metric_logger.log_every(data_loader, print_freq, header):
-        #samples.tensors.shape : torch.Size([8, 3, 1024, 1009])
-        #targets[0].keys() : dict_keys(['orig_size', 'size', 'boxes', 'labels', 'pos_att_classes', 'neg_att_classes', 'iscrowd', 'area', 'type', 'dataset'])
-        #import pdb; pdb.set_trace()
+        
         samples = samples.to(device)
         targets = [{k: v.to(device)  if type(v)!=str else v for k, v in t.items()} for t in targets]
 
-        #hoi_outputs.keys() : dict_keys(['pred_obj_logits', 'pred_verb_logits', 'pred_sub_boxes', 'pred_obj_boxes', 'aux_outputs'])
-        hoi_outputs = model(samples) #predicted by pretrained hoi model 
-        #import pdb; pdb.set_trace()
-        outputs = attribute_classifier(model, samples, hoi_outputs) #attribute_classifier
+        outputs = attribute_classifier(model, samples, targets) 
         
-        import pdb; pdb.set_trace()
-        loss_dict = criterion(hoi_outputs, targets)
+        loss_dict = criterion(outputs, targets)
         weight_dict = criterion.weight_dict
-        #import pdb; pdb.set_trace()
+
         losses = sum(loss_dict[k] * weight_dict[k] for k in loss_dict.keys() if k in weight_dict)
 
         # reduce losses over all GPUs for logging purposes

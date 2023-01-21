@@ -50,7 +50,7 @@ class Transformer(nn.Module):
             if p.dim() > 1:
                 nn.init.xavier_uniform_(p)
 
-    def forward(self, src, mask, query_embed, pos_embed):
+    def forward(self, src, mask, query_embed, pos_embed): #self.input_proj(src), mask, self.query_embed.weight, pos[-1]
         # flatten NxCxHxW to HWxNxC
         bs, c, h, w = src.shape
         src = src.flatten(2).permute(2, 0, 1)

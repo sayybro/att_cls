@@ -26,7 +26,7 @@ class DETRHOI(nn.Module):
         self.verb_class_embed = nn.Linear(hidden_dim, num_verb_classes)
         self.sub_bbox_embed = MLP(hidden_dim, hidden_dim, 4, 3)
         self.obj_bbox_embed = MLP(hidden_dim, hidden_dim, 4, 3)
-        self.input_proj = nn.Conv2d(backbone.num_channels, hidden_dim, kernel_size=1)
+        self.input_proj = nn.Conv2d(backbone.num_channels, hidden_dim, kernel_size=1) #model.input_proj
         self.backbone = backbone
         self.aux_loss = aux_loss
 
@@ -34,11 +34,11 @@ class DETRHOI(nn.Module):
         if not isinstance(samples, NestedTensor):
             samples = nested_tensor_from_tensor_list(samples)
         features, pos = self.backbone(samples)
-
-        src, mask = features[-1].decompose()
+        #import pdb; pdb.set_trace()
+        src, mask = features[-1].decompose() #src.shape torch.Size([8, 2048, 32, 32])
+        #import pdb; pdb.set_trace()
         assert mask is not None
         hs = self.transformer(self.input_proj(src), mask, self.query_embed.weight, pos[-1])[0]
-
         outputs_obj_class = self.obj_class_embed(hs)
         outputs_verb_class = self.verb_class_embed(hs)
         outputs_sub_coord = self.sub_bbox_embed(hs).sigmoid()
