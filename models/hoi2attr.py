@@ -26,7 +26,8 @@ class Attrclassifier(nn.Module):
 
     def forward(self, model, samples, targets):
         
-        object_boxes = [[i,box] for i, target in enumerate(targets) for box in target['boxes']]
+        object_boxes = [[i,box] for i, target in enumerate(targets) for box in target['boxes']] #topleft (x1,y1) bottom right (x2, y2)
+
         if not isinstance(samples, NestedTensor):
             samples = nested_tensor_from_tensor_list(samples) 
         
@@ -44,7 +45,7 @@ class Attrclassifier(nn.Module):
         
         
         #boxes (Tensor[K, 5] or List[Tensor[L, 4]]) – the box coordinates in (x1, y1, x2, y2) format where the regions will be taken from. The coordinate must satisfy 0 <= x1 < x2 and 0 <= y1 < y2. If a single Tensor is passed, then the first column should contain the batch index. If a list of Tensors is passed, then each Tensor will correspond to the boxes for an element i in a batch
-        #import pdb; pdb.set_trace()
+        import pdb; pdb.set_trace()
         input_sample = torch.ones(1, 3, 10, 10, dtype=torch.float32)
         rois = torch.zeros(1, 5, dtype=torch.float32)
         pooled_feature = box_roi_align(input = input_sample, rois = rois) #(B,C,W,H) , xyxy
