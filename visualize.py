@@ -31,7 +31,7 @@ class Visualize():
         self.color = (0,255,0) 
         self.output_path = args.output_dir + '.jpg'
         
-    def make_train_dataset(self,args):
+    def make_train_dataset(self, args):
         dataset_train = build_dataset(image_set='train', args=args)
         sampler_train = torch.utils.data.RandomSampler(dataset_train)
         batch_sampler_train = torch.utils.data.BatchSampler(
@@ -40,7 +40,7 @@ class Visualize():
                                     collate_fn=utils.collate_fn, num_workers=args.num_workers)
         return data_loader_train
 
-    def dataloader2sample(self,dataloader):
+    def dataloader2sample(self, dataloader):
         iterator = iter(dataloader)
         sample, target = next(iterator)
         return sample, target
@@ -54,7 +54,7 @@ class Visualize():
         inv_sample = 255*inv_img[0].numpy().transpose(1, 2, 0)
         return inv_sample
 
-    def convert_bbox(self,sample,target):
+    def convert_bbox(self, sample, target):
         boxes = target[0]['boxes'][0] #bounding box for visualize
         c_x, c_y, w,h = boxes[0], boxes[1], boxes[2], boxes[3]
         orig_h,orig_w = sample.shape[0], sample.shape[1]

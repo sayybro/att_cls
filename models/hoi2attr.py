@@ -4,7 +4,7 @@ from util.box_ops import box_cxcywh_to_xyxy, generalized_box_iou
 from collections import defaultdict
 from util.misc import (NestedTensor, nested_tensor_from_tensor_list)
 from .layers.roi_align import ROIAlign
-
+from typing import List
 
 class SetCriterionATTR(nn.Module):
 
@@ -24,13 +24,13 @@ class Attrclassifier(nn.Module):
         self.transformer_encoder = transformer.encoder  
         self.backbone = backbone 
 
-    def forward(self, model, samples, targets):
+    def forward(self, model, samples, targets): #sample.tensors : B,C,H,W
         
-        object_boxes = [[i,box] for i, target in enumerate(targets) for box in target['boxes']] #topleft (x1,y1) bottom right (x2, y2)
-
         if not isinstance(samples, NestedTensor):
             samples = nested_tensor_from_tensor_list(samples) 
-        
+        bbox = targets[0]['boxes'][0].tolist()
+        object_boxes = [torch.Tensor([int(i)]+self.convert_bbox(box.tolist())) for i, target in enumerate(targets) for box in target['boxes']]
+        box_tensors = torch.stack(object_boxes,0) #[K,5] , K: annotation length in mini-batch
         features, pos = self.backbone(samples)
         src, mask = features[-1].decompose()
         src = model.input_proj(src)
@@ -41,14 +41,29 @@ class Attrclassifier(nn.Module):
         memory = self.transformer_encoder(src, src_key_padding_mask=mask, pos=pos_embed) 
         encoder_output = memory.permute(1, 2, 0) 
         encoder_output = encoder_output.view([B,C,H,W]) 
-        box_roi_align = ROIAlign(output_size=(7,7), spatial_scale=1.0, sampling_ratio=-1, aligned=True) 
-        
-        
-        #boxes (Tensor[K, 5] or List[Tensor[L, 4]]) – the box coordinates in (x1, y1, x2, y2) format where the regions will be taken from. The coordinate must satisfy 0 <= x1 < x2 and 0 <= y1 < y2. If a single Tensor is passed, then the first column should contain the batch index. If a list of Tensors is passed, then each Tensor will correspond to the boxes for an element i in a batch
-        import pdb; pdb.set_trace()
-        input_sample = torch.ones(1, 3, 10, 10, dtype=torch.float32)
-        rois = torch.zeros(1, 5, dtype=torch.float32)
-        pooled_feature = box_roi_align(input = input_sample, rois = rois) #(B,C,W,H) , xyxy
+        box_roi_align = ROIAlign(output_size=(7,7), spatial_scale=1.0, sampling_ratio=-1, aligned=True)         
+        feature_H, feature_W = encoder_output.shape[2], encoder_output.shape[3]
+        box_tensors[...,1], box_tensors[...,3] = feature_W*box_tensors[...,1], feature_W*box_tensors[...,3] 
+        box_tensors[...,2], box_tensors[...,4] = feature_H*box_tensors[...,2], feature_H*box_tensors[...,4] 
+        pooled_feature = box_roi_align(input = encoder_output, rois = box_tensors.cuda()) #(B,C,W,H) , xyxy
+        #import pdb; pdb.set_trace()
+
+        #asdf = box_tensors
+
+    def convert_bbox(self,bbox:List): #annotation bbox (c_x,c_y,w,h)-> (x1,y1,x2,y2)
+        #import pdb; pdb.set_trace()
+        c_x, c_y, w,h = bbox[0], bbox[1], bbox[2], bbox[3]
+        x1,y1 = c_x-(w/2), c_y-(h/2)
+        x2,y2 = c_x+(w/2), c_y+(h/2)  
+        return [x1,y1,x2,y2]
+
+    def conv2d_layer(self):
+
+        return
+
+    def attr_head(self):
+
+        return
 
 def build_attrclass(args, backbone, transformer):
     return Attrclassifier(
