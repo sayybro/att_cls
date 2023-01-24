@@ -19,7 +19,7 @@ from torch.utils.data import DataLoader, DistributedSampler
 import datasets
 import util.misc as utils
 from datasets import build_dataset, get_coco_api_from_dataset
-from engine import evaluate, train_one_epoch, evaluate_hoi
+from engine import evaluate, train_one_epoch, evaluate_hoi, vaw_train_one_epoch, evaluate_att
 from models import build_model
 
 
@@ -126,6 +126,18 @@ def get_args_parser():
     parser.add_argument('--world_size', default=1, type=int,
                         help='number of distributed processes')
     parser.add_argument('--dist_url', default='env://', help='url used to set up distributed training')
+    
+    #attribute command
+    parser.add_argument('--num_att_classes', default=620, type=int,
+                        help='number of distributed processes')
+
+    
+
+    parser.add_argument('--att_det', action='store_true')
+    parser.add_argument('--att_loss_type', type=str, default='focal',
+                        help='Loss type for the attribute classification')
+
+
     return parser
 
 
@@ -145,11 +157,15 @@ def main(args):
     np.random.seed(seed)
     random.seed(seed)
 
-    model, attribute_classifier, criterion, postprocessors = build_model(args)
-    model.to(device)
-    attribute_classifier.to(device)
-    
-    #import pdb; pdb.set_trace()
+    if args.hoi:
+        model, criterion, postprocessors = build_model(args)
+        model.to(device)
+
+    elif args.att_det:
+        model, attribute_classifier, criterion, postprocessors = build_model(args)
+        model.to(device)
+        attribute_classifier.to(device)
+
     model_without_ddp = model
     if args.distributed:
         model = torch.nn.parallel.DistributedDataParallel(model, device_ids=[args.gpu])
@@ -218,6 +234,11 @@ def main(args):
         if args.hoi:
             test_stats = evaluate_hoi(args.dataset_file, model, postprocessors, data_loader_val, args.subject_category_id, device)
             return
+
+        elif args.att_det:
+            test_stats = evaluate_att(args.dataset_file, model, postprocessors, data_loader_val, args.subject_category_id, device)
+            return   
+
         else:
             test_stats, coco_evaluator = evaluate(model, criterion, postprocessors,
                                                   data_loader_val, base_ds, device, args.output_dir)
@@ -231,10 +252,16 @@ def main(args):
         if args.distributed:
             sampler_train.set_epoch(epoch)
 
-        #import pdb; pdb.set_trace()
-        train_stats = train_one_epoch(
-            model, attribute_classifier, criterion, data_loader_train, optimizer, device, epoch,
-            args.clip_max_norm)
+        if args.hoi:
+            train_stats = train_one_epoch(
+                model, criterion, data_loader_train, optimizer, device, epoch,
+                args.clip_max_norm)     
+
+        elif args.att_det: 
+            train_stats = vaw_train_one_epoch(
+                model, attribute_classifier, criterion, data_loader_train, optimizer, device, epoch,
+                args.clip_max_norm)
+
         lr_scheduler.step()
         if args.output_dir:
             checkpoint_paths = [output_dir / 'checkpoint.pth']
