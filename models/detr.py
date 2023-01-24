@@ -22,7 +22,7 @@ from .matcher import build_matcher
 from .segmentation import (DETRsegm, PostProcessPanoptic, PostProcessSegm,
                            dice_loss, sigmoid_focal_loss)
 from .hoi import (DETRHOI, SetCriterionHOI, PostProcessHOI)
-from .hoi2attr import SetCriterionATTR, build_attrclass
+from .hoi2attr import SetCriterionATT, build_attrclassifier, PostProcess_ATT
 from .transformer import build_transformer
 
 
@@ -317,7 +317,7 @@ def build(args):
     device = torch.device(args.device)
     backbone = build_backbone(args)
     transformer = build_transformer(args)
-    attribute_classifier = build_attrclass(args,backbone,transformer)
+    #attribute_classifier = build_attrclass(args,backbone,transformer)
 
     if args.hoi: #hoi model (freeze)
         model = DETRHOI(
@@ -328,6 +328,21 @@ def build(args):
             num_queries=args.num_queries,
             aux_loss=args.aux_loss,
         )
+
+    elif args.att_det:
+        #for encoder 
+        model = DETRHOI(
+            backbone,
+            transformer,
+            num_obj_classes=args.num_obj_classes,
+            num_verb_classes=args.num_verb_classes,
+            num_queries=args.num_queries,
+            aux_loss=args.aux_loss,
+        )
+
+        #for attribute classifier
+        attribute_classifier = build_attrclassifier(args,backbone,transformer)
+        
     else:
         model = DETR(
             backbone,
@@ -361,24 +376,31 @@ def build(args):
             aux_weight_dict.update({k + f'_{i}': v for k, v in weight_dict.items()})
         weight_dict.update(aux_weight_dict)
 
-    # # if args.hoi:
-    # #     losses = ['obj_labels', 'verb_labels', 'sub_obj_boxes', 'obj_cardinality']
-    # #     criterion = SetCriterionHOI(args.num_obj_classes, args.num_queries, args.num_verb_classes, matcher=matcher,
-    # #                                 weight_dict=weight_dict, eos_coef=args.eos_coef, losses=losses,
-    # #                                 verb_loss_type=args.verb_loss_type)
-    # else:
-    #     losses = ['labels', 'boxes', 'cardinality']
-    #     if args.masks:
-    #         losses += ["masks"]
-    #     criterion = SetCriterion(num_classes, matcher=matcher, weight_dict=weight_dict,
-    #                              eos_coef=args.eos_coef, losses=losses)
-    # criterion.to(device)
+    if args.hoi:
+        losses = ['obj_labels', 'verb_labels', 'sub_obj_boxes', 'obj_cardinality']
+        criterion = SetCriterionHOI(args.num_obj_classes, args.num_queries, args.num_verb_classes, matcher=matcher,
+                                    weight_dict=weight_dict, eos_coef=args.eos_coef, losses=losses,
+                                    verb_loss_type=args.verb_loss_type)
 
-    criterion = SetCriterionATTR()
+    elif args.att_det:
+        losses = ['obj_labels','att_labels']
+        criterion = SetCriterionATT(num_obj_classes=args.num_obj_classes, num_att_classes=args.num_att_classes, weight_dict=weight_dict, eos_coef=args.eos_coef, losses=losses, loss_type=args.att_loss_type)
+        
+
+    else:
+        losses = ['labels', 'boxes', 'cardinality']
+        if args.masks:
+            losses += ["masks"]
+        criterion = SetCriterion(num_classes, matcher=matcher, weight_dict=weight_dict,
+                                 eos_coef=args.eos_coef, losses=losses)
     criterion.to(device)
-    #import pdb; pdb.set_trace()
+
     if args.hoi:
         postprocessors = {'hoi': PostProcessHOI(args.subject_category_id)}
+
+    elif args.att_det:
+        postprocessors = PostProcess_ATT()
+
     else:
         postprocessors = {'bbox': PostProcess()}
         if args.masks:
@@ -387,4 +409,8 @@ def build(args):
                 is_thing_map = {i: i <= 90 for i in range(201)}
                 postprocessors["panoptic"] = PostProcessPanoptic(is_thing_map, threshold=0.85)
     
-    return model, attribute_classifier, criterion, postprocessors
+    if args.hoi:
+        return model, criterion, postprocessors
+    
+    elif args.att_det:
+        return model, attribute_classifier, criterion, postprocessors

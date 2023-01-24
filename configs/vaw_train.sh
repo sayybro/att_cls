@@ -1,7 +1,7 @@
 python main.py \
         --pretrained checkpoints/vcoco/checkpoint.pth \
         --output_dir logs \
-        --hoi \
+        --att_det \
         --batch_size 8 \
         --dataset_file vaw \
         --hoi_path data/vaw \
