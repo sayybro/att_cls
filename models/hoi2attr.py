@@ -7,6 +7,7 @@ from .layers.roi_align import ROIAlign
 from typing import List
 from util.fed import load_class_freq, get_fed_loss_inds
 import torch.nn.functional as F
+import numpy as np
 
 class SetCriterionATT(nn.Module):
 
@@ -27,7 +28,7 @@ class SetCriterionATT(nn.Module):
         self.loss_type = loss_type #'bce' or 'focal'
     
     #attribute class loss
-    def loss_att_labels(self, outputs, targets, num_att_classes, log=True):
+    def loss_att_labels(self, outputs, targets, log=True):
 
         assert 'att_preds' in outputs
         src_logits = outputs['att_preds'] #torch.Size([9, 620])
@@ -37,16 +38,23 @@ class SetCriterionATT(nn.Module):
         neg_classes_o = torch.cat([t['neg_att_classes'] for t in targets])
         neg_gt_classes = torch.nonzero(neg_classes_o==1)[...,-1]
 
+        box_length = [len(target['boxes']) for target in targets]
+        gt_pos = torch.cat([sum(target['pos_att_classes']).unsqueeze(0) if len(target['boxes']) == 1 else torch.tensor(np.tile(sum(target['pos_att_classes']).unsqueeze(0).detach().cpu(),(len(target['boxes']),1))).cuda() for target in targets])
+        gt_neg = torch.cat([sum(target['neg_att_classes']).unsqueeze(0) if len(target['boxes']) == 1 else torch.tensor(np.tile(sum(target['neg_att_classes']).unsqueeze(0).detach().cpu(),(len(target['boxes']),1))).cuda() for target in targets])
+        
+        #box index별로 attribute label을 어떻게 assign 하지..? 
+        #일단 image level로 모두 더해서 multilevel로 assign하여 처리.
         if self.loss_type == 'bce':
-            loss_att_ce = F.binary_cross_entopry_with_logits(src_logits[...,inds], target_classes[...,inds])
+            loss_att_ce = F.binary_cross_entopry_with_logits(src_logits, gt_pos)
+
         elif self.loss_type == 'focal':
             src_logits = src_logits.sigmoid()
-            loss_att_ce = self._neg_loss(src_logits[...,inds], target_classes[...,inds])
+            loss_att_ce = self._neg_loss(src_logits, gt_pos)
 
         losses = {'loss_att_ce': loss_att_ce}
         return losses
 
-    def loss_obj_labels(self, outputs, targets, num_att_classes, log=True):
+    def loss_obj_labels(self, outputs, targets, log=True):
 
         assert 'obj_preds' in outputs
 
@@ -91,14 +99,14 @@ class SetCriterionATT(nn.Module):
     #     tgt_idx = torch.cat([tgt for (_, tgt) in indices])
     #     return batch_idx, tgt_idx
 
-    def get_loss(self, loss, outputs, targets, num_att_classes, **kwargs):
+    def get_loss(self, loss, outputs, targets, **kwargs):
         loss_map = {
             'obj_labels':self.loss_obj_labels,
             'att_labels':self.loss_att_labels
         }
         #import pdb; pdb.set_trace()
         #assert loss in loss_map, f'do you really want to compute {loss} loss?'
-        return loss_map[loss](outputs,targets,num_att_classes,**kwargs)
+        return loss_map[loss](outputs,targets,**kwargs)
 
     def forward(self, outputs, targets):
         num_attributes = sum(len(t['labels']) for t in targets) #'label' object class 아닌가??
@@ -110,7 +118,7 @@ class SetCriterionATT(nn.Module):
         #compute all requested losses
         losses = {}
         for loss in self.losses:
-            losses.update(self.get_loss(loss, outputs, targets, num_attributes))
+            losses.update(self.get_loss(loss, outputs, targets))
 
         # if 'aux_outputs' in outputs:
         #     for i, aux_outputs in enumerate(outputs['aux_outputs']):

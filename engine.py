@@ -63,6 +63,7 @@ def vaw_train_one_epoch(model: torch.nn.Module, attribute_classifier: torch.nn.M
                                     for k, v in loss_dict_reduced.items() if k in weight_dict}
         losses_reduced_scaled = sum(loss_dict_reduced_scaled.values())
 
+        import pdb; pdb.set_trace()
         loss_value = losses_reduced_scaled.item()
 
         if not math.isfinite(loss_value):
