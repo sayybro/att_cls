@@ -87,18 +87,6 @@ class SetCriterionATT(nn.Module):
         
         return loss
 
-    # def _get_src_permutation_idx(self, indices):
-    #     #permute predictions following indices
-    #     batch_idx = torch.cat([torch.full_like(src,i) for i, (src, ) in enumerate(indices)])
-    #     src_idx = torch.cat([src for (src, _) in indices])
-    #     return batch_idx, src_idx
-
-    # def _get_tgt_premutation_idx(self, indices):
-    #     #permute targets following indices
-    #     batch_idx = torch.cat([torch.full_like(tgt, i) for i, (_, tgt) in enumerate(indices)])
-    #     tgt_idx = torch.cat([tgt for (_, tgt) in indices])
-    #     return batch_idx, tgt_idx
-
     def get_loss(self, loss, outputs, targets, **kwargs):
         loss_map = {
             'obj_labels':self.loss_obj_labels,
@@ -172,7 +160,7 @@ class Attrclassifier(nn.Module):
         
         if not isinstance(samples, NestedTensor):
             samples = nested_tensor_from_tensor_list(samples) 
-        bbox = targets[0]['boxes'][0].tolist()
+        
         object_boxes = [torch.Tensor([int(i)]+self.convert_bbox(box.tolist())) for i, target in enumerate(targets) for box in target['boxes']]
         box_tensors = torch.stack(object_boxes,0) #[K,5] , K: annotation length in mini-batch
         features, pos = self.backbone(samples)

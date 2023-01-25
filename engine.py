@@ -63,7 +63,6 @@ def vaw_train_one_epoch(model: torch.nn.Module, attribute_classifier: torch.nn.M
                                     for k, v in loss_dict_reduced.items() if k in weight_dict}
         losses_reduced_scaled = sum(loss_dict_reduced_scaled.values())
 
-        import pdb; pdb.set_trace()
         loss_value = losses_reduced_scaled.item()
 
         if not math.isfinite(loss_value):
@@ -81,7 +80,8 @@ def vaw_train_one_epoch(model: torch.nn.Module, attribute_classifier: torch.nn.M
         if hasattr(criterion, 'loss_labels'):
             metric_logger.update(class_error=loss_dict_reduced['class_error'])
         else:
-            metric_logger.update(obj_class_error=loss_dict_reduced['obj_class_error'])
+            #import pdb; pdb.set_trace()
+            metric_logger.update(obj_class_error=loss_dict_reduced['loss_att_obj_ce'])
         metric_logger.update(lr=optimizer.param_groups[0]["lr"])
     # gather the stats from all processes
     metric_logger.synchronize_between_processes()

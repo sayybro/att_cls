@@ -1,17 +1,10 @@
 python main.py \
-        --pretrained checkpoints/vcoco/checkpoint.pth \
+        --pretrained params/detr-r50-pre-vaw.pth \
         --output_dir logs \
         --att_det \
         --batch_size 8 \
         --dataset_file vaw \
         --hoi_path data/vaw \
-        --num_obj_classes 81 \
-        --num_verb_classes 29 \
-        --backbone resnet50 \
-        --set_cost_bbox 2.5 \
-        --set_cost_giou 1 \
-        --bbox_loss_coef 2.5 \
-        --giou_loss_coef 1
 
 
 # python -u main.py \
