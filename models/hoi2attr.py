@@ -42,6 +42,7 @@ class SetCriterionATT(nn.Module):
         gt_pos = torch.cat([sum(target['pos_att_classes']).unsqueeze(0) if len(target['boxes']) == 1 else torch.tensor(np.tile(sum(target['pos_att_classes']).unsqueeze(0).detach().cpu(),(len(target['boxes']),1))).cuda() for target in targets])
         gt_neg = torch.cat([sum(target['neg_att_classes']).unsqueeze(0) if len(target['boxes']) == 1 else torch.tensor(np.tile(sum(target['neg_att_classes']).unsqueeze(0).detach().cpu(),(len(target['boxes']),1))).cuda() for target in targets])
         
+        #import pdb; pdb.set_trace()
         #box index별로 attribute label을 어떻게 assign 하지..? 
         #일단 image level로 모두 더해서 multilevel로 assign하여 처리.
         if self.loss_type == 'bce':
@@ -165,6 +166,7 @@ class Attrclassifier(nn.Module):
         box_tensors = torch.stack(object_boxes,0) #[K,5] , K: annotation length in mini-batch
         features, pos = self.backbone(samples)
         src, mask = features[-1].decompose()
+        #import pdb; pdb.set_trace()
         src = model.input_proj(src)
         B,C,H,W = src.shape
         src = src.flatten(2).permute(2, 0, 1) 

@@ -1,4 +1,6 @@
-python main.py \
+#!/usr/bin/env bash
+
+python -u main.py \
         --pretrained params/detr-r50-pre-vaw.pth \
         --output_dir logs \
         --att_det \
