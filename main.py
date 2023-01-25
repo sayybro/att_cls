@@ -247,6 +247,12 @@ def main(args):
 
     print("Start training")
     start_time = time.time()
+
+    # if torch.distributed.is_distributed():
+    #     model.module.input_proj()
+    # else: # for single gpu usage
+    #     model.input_proj()
+
     for epoch in range(args.start_epoch, args.epochs):
         if args.distributed:
             sampler_train.set_epoch(epoch)

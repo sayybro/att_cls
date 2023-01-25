@@ -1,12 +1,38 @@
 #!/usr/bin/env bash
 
+set -x
+
+EXP_DIR=logs_run_001
+PY_ARGS=${@:1}
+
 python -u main.py \
         --pretrained params/detr-r50-pre-vaw.pth \
         --output_dir logs \
         --att_det \
         --batch_size 8 \
         --dataset_file vaw \
-        --hoi_path data/vaw \
+        --hoi_path data/vaw
+    ${PY_ARGS}
+
+#export CUDA_DEVICE_ORDER=PCI_BUS_ID
+# python -m torch.distributed.launch \
+#         --nproc_per_node=2 \
+#         --use_env \
+#         main.py \
+#         --pretrained params/detr-r50-pre-vaw.pth \
+#         --output_dir logs \
+#         --att_det \
+#         --batch_size 8 \
+#         --dataset_file vaw \
+#         --hoi_path data/vaw
+
+# python -u main.py \
+#         --pretrained params/detr-r50-pre-vaw.pth \
+#         --output_dir logs \
+#         --att_det \
+#         --batch_size 8 \
+#         --dataset_file vaw \
+#         --hoi_path data/vaw \
 
 
 # python -u main.py \

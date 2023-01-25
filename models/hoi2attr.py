@@ -155,10 +155,10 @@ class Attrclassifier(nn.Module):
         self.avgpool = nn.AdaptiveAvgPool2d((1, 1))
         self.fc1 = nn.Linear(256, args.num_att_classes)
         self.fc2 = nn.Linear(256, args.num_obj_classes)
-        
+        self.distributed = args.distributed
 
     def forward(self, model, samples, targets): #sample.tensors : B,C,H,W
-        
+
         if not isinstance(samples, NestedTensor):
             samples = nested_tensor_from_tensor_list(samples) 
         
@@ -166,8 +166,12 @@ class Attrclassifier(nn.Module):
         box_tensors = torch.stack(object_boxes,0) #[K,5] , K: annotation length in mini-batch
         features, pos = self.backbone(samples)
         src, mask = features[-1].decompose()
-        #import pdb; pdb.set_trace()
-        src = model.input_proj(src)
+        
+        if self.distributed:
+            src = model.module.input_proj(src)
+        else:
+            src = model.input_proj(src)
+
         B,C,H,W = src.shape
         src = src.flatten(2).permute(2, 0, 1) 
         pos_embed = pos[-1].flatten(2).permute(2, 0, 1) 
