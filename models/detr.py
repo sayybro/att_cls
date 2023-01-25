@@ -362,6 +362,10 @@ def build(args):
         weight_dict['loss_obj_bbox'] = args.bbox_loss_coef
         weight_dict['loss_sub_giou'] = args.giou_loss_coef
         weight_dict['loss_obj_giou'] = args.giou_loss_coef
+
+    elif args.att_det:
+        weight_dict['loss_att_obj_ce'] = args.obj_loss_coef
+        weight_dict['loss_att_ce'] = args.att_loss_coef
     else:
         weight_dict['loss_ce'] = 1
         weight_dict['loss_bbox'] = args.bbox_loss_coef

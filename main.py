@@ -136,8 +136,7 @@ def get_args_parser():
     parser.add_argument('--att_det', action='store_true')
     parser.add_argument('--att_loss_type', type=str, default='focal',
                         help='Loss type for the attribute classification')
-
-
+    parser.add_argument('--att_loss_coef', type=float, default=1)
     return parser
 
 
