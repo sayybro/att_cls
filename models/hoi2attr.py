@@ -31,7 +31,7 @@ class SetCriterionATT(nn.Module):
     def loss_att_labels(self, outputs, targets, log=True):
 
         assert 'att_preds' in outputs
-        src_logits = outputs['att_preds'] #torch.Size([9, 620])
+        src_logits = outputs['att_preds']
         target_classes_o = torch.cat([target['pos_att_classes'] for target in targets])
         target_classes = torch.zeros_like(src_logits)
         pos_gt_classes = torch.nonzero(target_classes_o==1)[...,-1]        
@@ -42,8 +42,8 @@ class SetCriterionATT(nn.Module):
         gt_pos = torch.cat([sum(target['pos_att_classes']).unsqueeze(0) if len(target['boxes']) == 1 else torch.tensor(np.tile(sum(target['pos_att_classes']).unsqueeze(0).detach().cpu(),(len(target['boxes']),1))).cuda() for target in targets])
         gt_neg = torch.cat([sum(target['neg_att_classes']).unsqueeze(0) if len(target['boxes']) == 1 else torch.tensor(np.tile(sum(target['neg_att_classes']).unsqueeze(0).detach().cpu(),(len(target['boxes']),1))).cuda() for target in targets])
         
-        #box index별로 attribute label을 어떻게 assign 하지..? 
-        #일단 image level로 모두 더해서 multilevel로 assign하여 처리.
+
+        #how to assign attribute label to box index? to be updated
         if self.loss_type == 'bce':
             loss_att_ce = F.binary_cross_entopry_with_logits(src_logits, gt_pos)
 
@@ -58,7 +58,7 @@ class SetCriterionATT(nn.Module):
 
         assert 'obj_preds' in outputs
 
-        src_logits = outputs['obj_preds'] #torch.Size([9, 81])
+        src_logits = outputs['obj_preds'] 
         target_classes_o = torch.cat([target['labels'] for target in targets])
         loss_obj_ce = F.cross_entropy(src_logits, target_classes_o, self.empty_weight)
         losses = {'loss_att_obj_ce': loss_obj_ce}
@@ -67,8 +67,8 @@ class SetCriterionATT(nn.Module):
 
     #modified focal loss
     def _neg_loss(self, pred, gt):
-        pos_inds = gt.eq(1).float() #=1, equal to 1
-        neg_inds = gt.lt(1).float() #<1, less than 1
+        pos_inds = gt.eq(1).float() 
+        neg_inds = gt.lt(1).float() 
 
         loss = 0
 
@@ -92,12 +92,11 @@ class SetCriterionATT(nn.Module):
             'obj_labels':self.loss_obj_labels,
             'att_labels':self.loss_att_labels
         }
-        #import pdb; pdb.set_trace()
-        #assert loss in loss_map, f'do you really want to compute {loss} loss?'
+
         return loss_map[loss](outputs,targets,**kwargs)
 
     def forward(self, outputs, targets):
-        num_attributes = sum(len(t['labels']) for t in targets) #'label' object class 아닌가??
+        num_attributes = sum(len(t['labels']) for t in targets) 
         num_attributes = torch.as_tensor([num_attributes], dtype=torch.float, device=outputs['att_preds'].device)
         if is_dist_avail_and_initialized():
             torch.distributed.all_reduce(num_attributes)
@@ -108,6 +107,7 @@ class SetCriterionATT(nn.Module):
         for loss in self.losses:
             losses.update(self.get_loss(loss, outputs, targets))
 
+        #auxiliary output
         # if 'aux_outputs' in outputs:
         #     for i, aux_outputs in enumerate(outputs['aux_outputs']):
         return losses
@@ -136,7 +136,6 @@ class PostProcess_ATT(nn.Module):
         results = []
         for obj_label, att_label in zip(obj_labels, attr_scores):
             results.append({'labels': obj_label.to('cpu')})
-            #ids = torch.arange()
             res_dict = {
                 'attr_scores' : att_label.to('cpu')
             }
@@ -154,10 +153,10 @@ class Attrclassifier(nn.Module):
         self.avgpool = nn.AdaptiveAvgPool2d((1, 1))
         self.fc1 = nn.Linear(256, args.num_att_classes)
         self.fc2 = nn.Linear(256, args.num_obj_classes)
-        
+        self.distributed = args.distributed
 
-    def forward(self, model, samples, targets): #sample.tensors : B,C,H,W
-        
+    def forward(self, model, samples, targets): 
+
         if not isinstance(samples, NestedTensor):
             samples = nested_tensor_from_tensor_list(samples) 
         
@@ -165,7 +164,12 @@ class Attrclassifier(nn.Module):
         box_tensors = torch.stack(object_boxes,0) #[K,5] , K: annotation length in mini-batch
         features, pos = self.backbone(samples)
         src, mask = features[-1].decompose()
-        src = model.input_proj(src)
+        
+        if self.distributed:
+            src = model.module.input_proj(src)
+        else:
+            src = model.input_proj(src)
+
         B,C,H,W = src.shape
         src = src.flatten(2).permute(2, 0, 1) 
         pos_embed = pos[-1].flatten(2).permute(2, 0, 1) 
@@ -196,13 +200,6 @@ class Attrclassifier(nn.Module):
         x2,y2 = c_x+(w/2), c_y+(h/2)  
         return [x1,y1,x2,y2]
 
-    def conv2d_layer(self):
-
-        return
-
-    def attr_head(self):
-
-        return
 
 def build_attrclassifier(args, backbone, transformer):
     return Attrclassifier(
