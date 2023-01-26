@@ -22,7 +22,7 @@ from .matcher import build_matcher
 from .segmentation import (DETRsegm, PostProcessPanoptic, PostProcessSegm,
                            dice_loss, sigmoid_focal_loss)
 from .hoi import (DETRHOI, SetCriterionHOI, PostProcessHOI)
-from .hoi2attr import SetCriterionATT, build_attrclassifier, PostProcess_ATT
+from .attr_cls import SetCriterionATT, build_attrclassifier, PostProcess_ATT
 from .transformer import build_transformer
 
 
