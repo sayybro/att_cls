@@ -387,8 +387,10 @@ def build(args):
                                     verb_loss_type=args.verb_loss_type)
 
     elif args.att_det:
-        losses = ['obj_labels','att_labels']
-        criterion = SetCriterionATT(num_obj_classes=args.num_obj_classes, num_att_classes=args.num_att_classes, weight_dict=weight_dict, eos_coef=args.eos_coef, losses=losses, loss_type=args.att_loss_type)
+        #losses = ['obj_labels','att_labels']
+        losses = ['att_labels']
+        #criterion = SetCriterionATT(num_obj_classes=args.num_obj_classes, num_att_classes=args.num_att_classes, weight_dict=weight_dict, eos_coef=args.eos_coef, losses=losses, loss_type=args.att_loss_type)
+        criterion = SetCriterionATT(num_att_classes=args.num_att_classes, weight_dict=weight_dict, losses=losses, loss_type=args.att_loss_type)
         
 
     else:
