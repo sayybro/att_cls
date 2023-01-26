@@ -33,13 +33,10 @@ def vaw_train_one_epoch(model: torch.nn.Module, attribute_classifier: torch.nn.M
     
     model.train()
     criterion.train()
+    #import pdb; pdb.set_trace()
     metric_logger = utils.MetricLogger(delimiter="  ")
     metric_logger.add_meter('lr', utils.SmoothedValue(window_size=1, fmt='{value:.6f}'))
-    if hasattr(criterion, 'loss_labels'):
-        metric_logger.add_meter('class_error', utils.SmoothedValue(window_size=1, fmt='{value:.2f}'))
-    else:
-       metric_logger.add_meter('obj_class_error', utils.SmoothedValue(window_size=1, fmt='{value:.2f}'))
-
+    metric_logger.add_meter('loss_att_ce', utils.SmoothedValue(window_size=1, fmt='{value:.2f}'))
     header = 'Epoch: [{}]'.format(epoch)
     print_freq = 10
 
@@ -48,8 +45,9 @@ def vaw_train_one_epoch(model: torch.nn.Module, attribute_classifier: torch.nn.M
         samples = samples.to(device)
         targets = [{k: v.to(device)  if type(v)!=str else v for k, v in t.items()} for t in targets]
 
-        attributes, objects = attribute_classifier(model, samples, targets) 
-        outputs = {'att_preds': attributes,'obj_preds': objects}
+        attributes = attribute_classifier(model, samples, targets) 
+        #outputs = {'att_preds': attributes,'obj_preds': objects}
+        outputs = {'att_preds': attributes}
         loss_dict = criterion(outputs, targets)
         weight_dict = criterion.weight_dict
 
@@ -77,12 +75,9 @@ def vaw_train_one_epoch(model: torch.nn.Module, attribute_classifier: torch.nn.M
         optimizer.step()
 
         metric_logger.update(loss=loss_value, **loss_dict_reduced_scaled, **loss_dict_reduced_unscaled)
-        if hasattr(criterion, 'loss_labels'):
-            metric_logger.update(class_error=loss_dict_reduced['class_error'])
-        else:
-            #import pdb; pdb.set_trace()
-            metric_logger.update(obj_class_error=loss_dict_reduced['loss_att_obj_ce'])
+        metric_logger.update(loss_att_ce=loss_dict_reduced['loss_att_ce'])
         metric_logger.update(lr=optimizer.param_groups[0]["lr"])
+        
     # gather the stats from all processes
     metric_logger.synchronize_between_processes()
     print("Averaged stats:", metric_logger)
