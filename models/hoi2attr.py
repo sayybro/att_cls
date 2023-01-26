@@ -32,8 +32,7 @@ class SetCriterionATT(nn.Module):
         target_classes = torch.zeros_like(src_logits)
 
         #only consider samples that have box annotations
-        pos_labels = torch.cat([t['pos_att_classes'][0].unsqueeze(0) for t in targets if (len(t['boxes']) > 0)]) 
-        neg_labels = torch.cat([t['neg_att_classes'][0].unsqueeze(0) for t in targets if (len(t['boxes']) > 0)]) 
+        pos_labels, neg_labels = self.postprocess_att(targets)
         
         assert len(pos_labels) == len(src_logits)
         assert len(neg_labels) == len(src_logits)
@@ -47,15 +46,13 @@ class SetCriterionATT(nn.Module):
         pos_gt_classes = torch.from_numpy(pos_gt_classes).unique()
         neg_gt_classes = torch.from_numpy(neg_gt_classes).unique()
         
+        #loss calculation for 50 of 620 attribute classes
         inds = get_fed_loss_inds(
             gt_classes=torch.cat([pos_gt_classes,neg_gt_classes]),
             num_sample_cats=50,
             weight=self.fed_loss_weight,
             C=src_logits.shape[1])
 
-        import pdb; pdb.set_trace()
-        #src_logits[...,inds] : torch.Size([number of boxes in minibatch, 50(attribute logits for training)])
-        #src_logits[...,inds] : torch.Size([number of boxes in minibatch, 50(attribute logits for training)])
         if self.loss_type == 'bce':
             loss_att_ce = F.binary_cross_entopry_with_logits(src_logits[...,inds], target_classes[...,inds])
 
@@ -82,7 +79,6 @@ class SetCriterionATT(nn.Module):
 
         if num_pos == 0:
             loss = loss - neg_loss
-    
         else: 
             loss = loss - (pos_loss + neg_loss) / num_pos      
         return loss
@@ -93,6 +89,28 @@ class SetCriterionATT(nn.Module):
         }
 
         return loss_map[loss](outputs,targets,**kwargs)
+
+    def postprocess_att(self, targets):
+
+        pos,neg = [], []
+        for target in targets:
+            #box label : attribute label = 1 : 1
+            if (len(target['boxes']) > 0) and (len(target['pos_att_classes']) == (len(target['boxes']))):
+                pos.append(target['pos_att_classes'])
+                neg.append(target['neg_att_classes'])
+
+            #box label : attribute label = 1 : N
+            if (len(target['boxes']) == 1) and (len(target['pos_att_classes']) > (len(target['boxes']))): 
+                pos.append(sum(target['pos_att_classes']).unsqueeze(0))
+                neg.append(sum(target['pos_att_classes']).unsqueeze(0))
+
+            #when len(box labels) > 1 and len(box_labels) != len(target['pos_att_classes']) can't assign
+            if (len(target['boxes']) > 1) and len(target['boxes']) != len(target['pos_att_classes']): #loss 계산 제외 하도록 해야할듯? 
+                tmp = torch.from_numpy(np.tile(np.array(-1),(target['boxes'].shape[0],620))).cuda()
+                pos.append(tmp)
+                neg.append(tmp)
+                
+        return torch.cat(pos), torch.cat(neg)
 
     def forward(self, outputs, targets):
 
