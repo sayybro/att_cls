@@ -7,47 +7,10 @@ PY_ARGS=${@:1}
 
 python -u main.py \
         --pretrained params/detr-r50-pre-vaw.pth \
-        --output_dir checkpoints/vaw/150 \
+        --output_dir checkpoints/vaw \
         --att_det \
         --batch_size 8 \
         --dataset_file vaw \
+        --att_loss_type bce \
         --hoi_path data/vaw
     ${PY_ARGS}
-
-#export CUDA_DEVICE_ORDER=PCI_BUS_ID
-# python -m torch.distributed.launch \
-#         --nproc_per_node=2 \
-#         --use_env \
-#         main.py \
-#         --pretrained params/detr-r50-pre-vaw.pth \
-#         --output_dir logs \
-#         --att_det \
-#         --batch_size 8 \
-#         --dataset_file vaw \
-#         --hoi_path data/vaw
-
-# python -u main.py \
-#         --pretrained params/detr-r50-pre-vaw.pth \
-#         --output_dir logs \
-#         --att_det \
-#         --batch_size 8 \
-#         --dataset_file vaw \
-#         --hoi_path data/vaw \
-
-
-# python -u main.py \
-#     --pretrained params/detr-r50-pre-vaw.pth \
-#     --run_name ${EXP_DIR} \
-#     --project_name QPIC_VAW \
-#     --att_det \
-#     --batch_size 4 \
-#     --update_obj_att \
-#     --epochs 90 \
-#     --lr_drop 60 \
-#     --dataset_file vaw \
-#     --data_path data/vaw \
-#     --num_obj_att_classes 80 \
-#     --num_vcoco_verb_classes 29 \
-#     --num_hico_verb_classes 117 \
-#     --backbone resnet50 \
-#     --output_dir checkpoints/vaw/ \
