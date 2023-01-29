@@ -105,7 +105,7 @@ class SetCriterionATT(nn.Module):
                 neg.append(sum(target['pos_att_classes']).unsqueeze(0))
 
             #when len(box labels) > 1 and len(box_labels) != len(target['pos_att_classes']) can't assign
-            if (len(target['boxes']) > 1) and len(target['boxes']) != len(target['pos_att_classes']): #loss 계산 제외 하도록 해야할듯? 
+            if (len(target['boxes']) > 1) and len(target['boxes']) != len(target['pos_att_classes']): #loss 계산 제외하도록 해야할듯? 
                 tmp = torch.from_numpy(np.tile(np.array(-1),(target['boxes'].shape[0],620))).cuda()
                 pos.append(tmp)
                 neg.append(tmp)
@@ -157,7 +157,7 @@ class Attrclassifier(nn.Module):
         self.backbone = backbone 
         self.conv = nn.Conv2d(hidden_dim, hidden_dim, kernel_size=3, stride=1, padding=1)
         self.avgpool = nn.AdaptiveAvgPool2d((1, 1))
-        self.fc = nn.Linear(256, args.num_att_classes)
+        self.fc = nn.Linear(hidden_dim, args.num_att_classes)
         #self.fc = MLP(hidden_dim, hidden_dim, num_att_classes,3)
         self.distributed = args.distributed
         #import pdb; pdb.set_trace()

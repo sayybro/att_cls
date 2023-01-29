@@ -7,7 +7,7 @@ PY_ARGS=${@:1}
 
 python -u main.py \
         --pretrained params/detr-r50-pre-vaw.pth \
-        --output_dir checkpoints/vaw \
+        --output_dir checkpoints/vaw/all \
         --att_det \
         --batch_size 8 \
         --dataset_file vaw \
