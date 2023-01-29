@@ -54,7 +54,7 @@ class SetCriterionATT(nn.Module):
             C=src_logits.shape[1])
 
         if self.loss_type == 'bce':
-            loss_att_ce = F.binary_cross_entopry_with_logits(src_logits[...,inds], target_classes[...,inds])
+            loss_att_ce = F.binary_cross_entropy_with_logits(src_logits[...,inds], target_classes[...,inds])
 
         elif self.loss_type == 'focal':
             src_logits = src_logits.sigmoid()
@@ -105,7 +105,7 @@ class SetCriterionATT(nn.Module):
                 neg.append(sum(target['pos_att_classes']).unsqueeze(0))
 
             #when len(box labels) > 1 and len(box_labels) != len(target['pos_att_classes']) can't assign
-            if (len(target['boxes']) > 1) and len(target['boxes']) != len(target['pos_att_classes']): #loss 계산 제외 하도록 해야할듯? 
+            if (len(target['boxes']) > 1) and len(target['boxes']) != len(target['pos_att_classes']): #loss 계산 제외하도록 해야할듯? 
                 tmp = torch.from_numpy(np.tile(np.array(-1),(target['boxes'].shape[0],620))).cuda()
                 pos.append(tmp)
                 neg.append(tmp)
@@ -151,12 +151,16 @@ class Attrclassifier(nn.Module):
 
     def __init__(self, args, backbone, transformer):
         super().__init__()
+        hidden_dim = transformer.d_model
+        num_att_classes = args.num_att_classes
         self.transformer_encoder = transformer.encoder  
         self.backbone = backbone 
-        self.conv = nn.Conv2d(256, 256, kernel_size=3, stride=1, padding=1)
+        self.conv = nn.Conv2d(hidden_dim, hidden_dim, kernel_size=3, stride=1, padding=1)
         self.avgpool = nn.AdaptiveAvgPool2d((1, 1))
-        self.fc1 = nn.Linear(256, args.num_att_classes)
+        self.fc = nn.Linear(hidden_dim, args.num_att_classes)
+        #self.fc = MLP(hidden_dim, hidden_dim, num_att_classes,3)
         self.distributed = args.distributed
+        #import pdb; pdb.set_trace()
 
     def forward(self, model, samples, targets): 
 
@@ -192,7 +196,7 @@ class Attrclassifier(nn.Module):
         x = self.conv(pooled_feature) #torch.Size([N, 256, 7, 7])
         x = self.avgpool(x) #torch.Size([N, 256, 1, 1])
         x = torch.flatten(x, 1) #torch.Size([N, 256])
-        attributes = self.fc1(x) ##torch.Size([N, 620])
+        attributes = self.fc(x) ##torch.Size([N, 620])
         return attributes
 
     def convert_bbox(self,bbox:List): #annotation bbox (c_x,c_y,w,h)-> (x1,y1,x2,y2) for roi align
@@ -201,6 +205,20 @@ class Attrclassifier(nn.Module):
         x2,y2 = c_x+(w/2), c_y+(h/2)  
         return [x1,y1,x2,y2]
 
+
+class MLP(nn.Module):
+    """ Very simple multi-layer perceptron (also called FFN)"""
+
+    def __init__(self, input_dim, hidden_dim, output_dim, num_layers):
+        super().__init__()
+        self.num_layers = num_layers
+        h = [hidden_dim] * (num_layers - 1)
+        self.layers = nn.ModuleList(nn.Linear(n, k) for n, k in zip([input_dim] + h, h + [output_dim]))
+
+    def forward(self, x):
+        for i, layer in enumerate(self.layers):
+            x = F.relu(layer(x)) if i < self.num_layers - 1 else layer(x)
+        return x
 
 def build_attrclassifier(args, backbone, transformer):
     return Attrclassifier(
