@@ -158,9 +158,8 @@ class Attrclassifier(nn.Module):
         self.conv = nn.Conv2d(hidden_dim, hidden_dim, kernel_size=3, stride=1, padding=1)
         self.avgpool = nn.AdaptiveAvgPool2d((1, 1))
         self.fc = nn.Linear(hidden_dim, args.num_att_classes)
-        #self.fc = MLP(hidden_dim, hidden_dim, num_att_classes,3)
         self.distributed = args.distributed
-        #import pdb; pdb.set_trace()
+
 
     def forward(self, model, samples, targets): 
 

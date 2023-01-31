@@ -25,7 +25,7 @@ from datasets.hico_eval import HICOEvaluator
 from datasets.vcoco_eval import VCOCOEvaluator
 from datasets.vaw_eval import VAWEvaluator
 
-
+#for single task vaw attribute classification
 def vaw_train_one_epoch(model: torch.nn.Module, attribute_classifier: torch.nn.Module, criterion: torch.nn.Module,
                     data_loader: Iterable, optimizer: torch.optim.Optimizer,
                     device: torch.device, epoch: int, max_norm: float = 0):
@@ -83,6 +83,7 @@ def vaw_train_one_epoch(model: torch.nn.Module, attribute_classifier: torch.nn.M
     print("Averaged stats:", metric_logger)
     return {k: meter.global_avg for k, meter in metric_logger.meters.items()}
 
+
 def train_one_epoch(model: torch.nn.Module, criterion: torch.nn.Module,
                     data_loader: Iterable, optimizer: torch.optim.Optimizer,
                     device: torch.device, epoch: int, max_norm: float = 0):
@@ -136,6 +137,82 @@ def train_one_epoch(model: torch.nn.Module, criterion: torch.nn.Module,
     # gather the stats from all processes
     metric_logger.synchronize_between_processes()
     print("Averaged stats:", metric_logger)
+    return {k: meter.global_avg for k, meter in metric_logger.meters.items()}
+
+#for multi task learning
+def mtl_train_one_epoch(model: torch.nn.Module, criterion: torch.nn.Module,
+                    data_loader, optimizer: torch.optim.Optimizer,
+                    device: torch.device, epoch: int, max_norm: float = 0, log: bool = False, args=None):
+    model.train()
+    criterion.train()
+    
+    metric_logger = utils.MetricLogger(delimiter="") 
+    metric_logger.add_meter('lr', utils.SmoothedValue(window_size=1, fmt='{value:.6f}'))
+    
+    if hasattr(criterion, 'loss_labels'):
+        metric_logger.add_meter('class_error', utils.SmoothedValue(window_size=1, fmt='{value:.2f}'))
+    
+    header = 'Epoch: [{}]'.format(epoch)    
+    print_freq = 10
+
+    for samples,targets in metric_logger.log_every(data_loader, print_freq, header):
+        
+        assert len(set([t['dataset'] for t in targets]))==1
+        samples = samples.to(device)
+        targets = [{k: v.to(device)  if type(v)!=str else v for k, v in t.items()} for t in targets]
+        target_verb = [target['verb_labels'] for target in targets]
+        dtype=targets[0]['type']
+        dataset=targets[0]['dataset']
+        
+        if dtype =='hoi':
+            outputs = model(samples,dtype,dataset)
+            loss_dict = criterion['hoi'](outputs,targets)
+            weight_dict = criterion['hoi'].weight_dict
+        
+        if dtype == 'vaw':
+            outputs = model.forward_a(samples,dtype,dataset)
+            if loss_dict:
+                loss_dict.update(criterion['att'](outputs,targets))
+            else:
+                loss_dict = criterion['att'](outputs,targets)
+            #loss_dict = criterion['att'](outputs,targets)
+            
+            if weight_dict:
+                weight_dict.update(criterion['att'].weight_dict)
+            else:
+                weight_dict = criterion['att'].weight_dict
+        
+        #import pdb; pdb.set_trace()
+        losses = sum(loss_dict[k] * weight_dict[k] for k in loss_dict.keys() if k in weight_dict)
+
+        # reduce losses over all GPUs for logging purposes
+        loss_dict_reduced = utils.reduce_dict(loss_dict)
+        loss_dict_reduced_unscaled = {f'{k}_unscaled': v
+                                      for k, v in loss_dict_reduced.items()}
+        loss_dict_reduced_scaled = {k: v * weight_dict[k]
+                                    for k, v in loss_dict_reduced.items() if k in weight_dict}
+        losses_reduced_scaled = sum(loss_dict_reduced_scaled.values())
+
+        loss_value = losses_reduced_scaled.item()
+        if not math.isfinite(loss_value):
+            print("Loss is {}, stopping training".format(loss_value))
+            print(loss_dict_reduced)
+            sys.exit(1)
+
+        optimizer.zero_grad()
+        losses.backward()
+        if max_norm > 0:
+            torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm)
+        optimizer.step()
+
+        metric_logger.update(loss=loss_value, **loss_dict_reduced_scaled)
+        if hasattr(criterion, 'loss_labels'):
+            metric_logger.update(class_error=loss_dict_reduced['class_error'])
+        metric_logger.update(lr=optimizer.param_groups[0]["lr"])
+        
+    metric_logger.synchronize_between_processes()
+    print("Averaged stats:", metric_logger)
+    if utils.get_rank() == 0 and log: wandb.log(loss_dict_reduced_scaled)
     return {k: meter.global_avg for k, meter in metric_logger.meters.items()}
 
 

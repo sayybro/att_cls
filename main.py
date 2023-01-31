@@ -19,8 +19,15 @@ from torch.utils.data import DataLoader, DistributedSampler
 import datasets
 import util.misc as utils
 from datasets import build_dataset, get_coco_api_from_dataset
-from engine import evaluate, train_one_epoch, evaluate_hoi, vaw_train_one_epoch, evaluate_att
+from engine import evaluate, train_one_epoch, evaluate_hoi, vaw_train_one_epoch, evaluate_att, evaluate_hoi_att, mtl_train_one_epoch
 from models import build_model
+import wandb
+
+#for multi task learning
+from torch.utils.data.dataset import ConcatDataset
+from util.mtl_loader import MultiTaskDataLoader,CombinationDataset
+from pytorch_lightning.trainer.supporters import CombinedLoader
+
 
 
 def get_args_parser():
@@ -82,7 +89,7 @@ def get_args_parser():
     # Loss
     parser.add_argument('--no_aux_loss', dest='aux_loss', action='store_false',
                         help="Disables auxiliary decoding losses (loss at each layer)")
-    # * Matcher
+    # Matcher
     parser.add_argument('--set_cost_class', default=1, type=float,
                         help="Class coefficient in the matching cost")
     parser.add_argument('--set_cost_bbox', default=5, type=float,
@@ -94,7 +101,7 @@ def get_args_parser():
     parser.add_argument('--set_cost_verb_class', default=1, type=float,
                         help="Verb class coefficient in the matching cost")
 
-    # * Loss coefficients
+    # Loss coefficients
     parser.add_argument('--mask_loss_coef', default=1, type=float)
     parser.add_argument('--dice_loss_coef', default=1, type=float)
     parser.add_argument('--bbox_loss_coef', default=5, type=float)
@@ -130,13 +137,25 @@ def get_args_parser():
     #attribute command
     parser.add_argument('--num_att_classes', default=620, type=int,
                         help='number of distributed processes')
-
-    
-
     parser.add_argument('--att_det', action='store_true')
-    parser.add_argument('--att_loss_type', type=str, default='focal',
+    parser.add_argument('--att_loss_type', type=str, default='bce',
                         help='Loss type for the attribute classification')
     parser.add_argument('--att_loss_coef', type=float, default=1)
+    parser.add_argument('--update_obj_att', action='store_true')
+    
+    # mtl
+    parser.add_argument('--mtl', action='store_true')
+    parser.add_argument('--mtl_data', type=utils.arg_as_list,default=[],
+                            help='[hico,vcoco,vaw]')
+    parser.add_argument('--num_hico_verb_classes', type=int, default=117,
+                    help="Number of verb hico classes")
+    parser.add_argument('--num_vcoco_verb_classes', type=int, default=29,
+                    help="Number of verb coco classes")
+    
+    
+    #eval
+    parser.add_argument('--max_pred', default=100, type=int)
+
     return parser
 
 
@@ -156,14 +175,17 @@ def main(args):
     np.random.seed(seed)
     random.seed(seed)
 
-    if args.hoi:
-        model, criterion, postprocessors = build_model(args)
-        model.to(device)
 
-    elif args.att_det:
+    #single task learning (attribute)
+    if args.att_det:
         model, attribute_classifier, criterion, postprocessors = build_model(args)
         model.to(device)
         attribute_classifier.to(device)
+
+    #mtl or hoi
+    else:
+        model, criterion, postprocessors = build_model(args)
+        model.to(device)
 
     model_without_ddp = model
     if args.distributed:
@@ -183,31 +205,54 @@ def main(args):
                                   weight_decay=args.weight_decay)
     lr_scheduler = torch.optim.lr_scheduler.StepLR(optimizer, args.lr_drop)
 
-    dataset_train = build_dataset(image_set='train', args=args)
-    dataset_val = build_dataset(image_set='val', args=args)
-
-    if args.distributed:
-        sampler_train = DistributedSampler(dataset_train)
-        sampler_val = DistributedSampler(dataset_val, shuffle=False)
-    else:
-        sampler_train = torch.utils.data.RandomSampler(dataset_train)
-        sampler_val = torch.utils.data.SequentialSampler(dataset_val)
-
-    batch_sampler_train = torch.utils.data.BatchSampler(
-        sampler_train, args.batch_size, drop_last=True)
-
-    data_loader_train = DataLoader(dataset_train, batch_sampler=batch_sampler_train,
-                                   collate_fn=utils.collate_fn, num_workers=args.num_workers)
-    data_loader_val = DataLoader(dataset_val, args.batch_size, sampler=sampler_val,
-                                 drop_last=False, collate_fn=utils.collate_fn, num_workers=args.num_workers)
-
-    if not args.hoi:
-        if args.dataset_file == "coco_panoptic":
-            # We also evaluate AP during panoptic training, on original coco DS
-            coco_val = datasets.coco.build("val", args)
-            base_ds = get_coco_api_from_dataset(coco_val)
+    if args.mtl:
+        dataset_train = build_dataset(image_set='train', args=args)
+        dataset_val = build_dataset(image_set='val', args=args)
+        if 'vaw' in args.mtl_data:
+            args.num_att_classes = dataset_train[-1].num_attributes() 
+        if args.distributed:
+            sampler_train = [torch.utils.data.DistributedSampler(d) for d in dataset_train]
+            sampler_val = [torch.utils.data.DistributedSampler(dv,shuffle=False) for dv in dataset_val]
         else:
-            base_ds = get_coco_api_from_dataset(dataset_val)
+            sampler_train = [torch.utils.data.RandomSampler(d)for d in dataset_train]
+            sampler_val = [torch.utils.data.SequentialSampler(dv) for dv in dataset_val]
+        
+        batch_sampler_train = ComboBatchSampler(
+            sampler_train, args.batch_size, drop_last=True)
+        
+        data_loader_train = DataLoader(CombinationDataset(dataset_train),
+                                        batch_sampler = batch_sampler_train, collate_fn=utils.collate_fn, num_workers=args.num_workers)
+        
+        data_loader_val = [DataLoader(dv, args.batch_size, sampler=sv,
+                                    drop_last=False, collate_fn=utils.collate_fn, num_workers=args.num_workers) for dv,sv in zip(dataset_val,sampler_val)]
+    
+    #for single task learning
+    else:
+        dataset_train = build_dataset(image_set='train', args=args)
+        dataset_val = build_dataset(image_set='val', args=args)
+
+        if args.distributed:
+            sampler_train = DistributedSampler(dataset_train)
+            sampler_val = DistributedSampler(dataset_val, shuffle=False)
+        else:
+            sampler_train = torch.utils.data.RandomSampler(dataset_train)
+            sampler_val = torch.utils.data.SequentialSampler(dataset_val)
+
+        batch_sampler_train = torch.utils.data.BatchSampler(
+            sampler_train, args.batch_size, drop_last=True)
+
+        data_loader_train = DataLoader(dataset_train, batch_sampler=batch_sampler_train,
+                                    collate_fn=utils.collate_fn, num_workers=args.num_workers)
+        data_loader_val = DataLoader(dataset_val, args.batch_size, sampler=sampler_val,
+                                    drop_last=False, collate_fn=utils.collate_fn, num_workers=args.num_workers)
+
+    # if not args.hoi and not args.:
+    #     if args.dataset_file == "coco_panoptic":
+    #         # We also evaluate AP during panoptic training, on original coco DS
+    #         coco_val = datasets.coco.build("val", args)
+    #         base_ds = get_coco_api_from_dataset(coco_val)
+    #     else:
+    #         base_ds = get_coco_api_from_dataset(dataset_val)
 
     if args.frozen_weights is not None:
         checkpoint = torch.load(args.frozen_weights, map_location='cpu')
@@ -230,7 +275,51 @@ def main(args):
         model_without_ddp.load_state_dict(checkpoint['model'], strict=False)
 
     if args.eval:
-        if args.hoi:
+        if args.mtl:
+            for dlv in data_loader_val:
+                test_stats,dataset_name = evaluate_hoi_att(args.dataset_file, model, postprocessors, dlv, args.subject_category_id, device, args)
+                if 'v-coco' in dataset_name:
+                    log_stats = {**{f'test_{k}': v for k, v in test_stats.items()}}
+                    if args.output_dir:
+                        with (output_dir / "log.txt").open("a") as f:
+                            f.write(json.dumps(log_stats) + "\n")
+                    if utils.get_rank() == 0 and args.wandb:
+                
+                        wandb.log({
+                            'mAP_all': test_stats['mAP_all'],
+                            'mAP_thesis':test_stats['mAP_thesis']
+                        })
+                    performance=test_stats['mAP_thesis']
+                elif 'hico' in dataset_name:
+                    log_stats = {**{f'test_{k}': v for k, v in test_stats.items()}}
+                    if args.output_dir:
+                        with (output_dir / "log.txt").open("a") as f:
+                            f.write(json.dumps(log_stats) + "\n")
+                    if utils.get_rank() == 0 and args.wandb:
+                        wandb.log({
+                            'mAP': test_stats['mAP'],
+                            'mAP rare': test_stats['mAP rare'],
+                            'mAP non-rare':test_stats['mAP non-rare'],
+                            'mean max recall':test_stats['mean max recall']
+                        })
+                    performance=test_stats['mAP']
+                elif 'vaw' in dataset_name:
+                    log_stats = {**{f'test_{k}': v for k, v in test_stats.items()}}
+                    if args.output_dir:
+                        with (output_dir / "log.txt").open("a") as f:
+                            f.write(json.dumps(log_stats) + "\n")
+                    if utils.get_rank() == 0 and args.wandb:
+                        wandb.log({
+                            'mAP': test_stats['mAP'],
+                            'mAP rare': test_stats['mAP rare'],
+                            'mAP non-rare':test_stats['mAP non-rare'],
+                            'mean max recall':test_stats['mean max recall']
+                        })
+                    performance=test_stats['mAP']
+                    coco_evaluator = None
+
+        
+        elif args.hoi:
             test_stats = evaluate_hoi(args.dataset_file, model, postprocessors, data_loader_val, args.subject_category_id, device)
             return
 
@@ -252,7 +341,12 @@ def main(args):
         if args.distributed:
             sampler_train.set_epoch(epoch)
 
-        if args.hoi:
+        if args.mtl:
+            train_stats = mtl_train_one_epoch(
+                model, criterion, data_loader_train, optimizer, device, epoch,
+                args.clip_max_norm) 
+
+        elif args.hoi:
             train_stats = train_one_epoch(
                 model, criterion, data_loader_train, optimizer, device, epoch,
                 args.clip_max_norm)     

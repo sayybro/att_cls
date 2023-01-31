@@ -169,7 +169,7 @@ def make_vcoco_transforms(image_set):
 
 
 def build(image_set, args):
-    root = Path(args.hoi_path)
+    root = Path('data/v-coco')
     assert root.exists(), f'provided HOI path {root} does not exist'
     PATHS = {
         'train': (root / 'images' / 'train2014', root / 'annotations' / 'trainval_vcoco.json'),
