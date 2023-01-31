@@ -13,4 +13,5 @@ python -u main.py \
         --dataset_file vaw \
         --att_loss_type bce \
         --hoi_path data/vaw
+        
     ${PY_ARGS}

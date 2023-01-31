@@ -24,16 +24,27 @@ def get_coco_api_from_dataset(dataset):
 
 
 def build_dataset(image_set, args):
-    if args.dataset_file == 'coco':
-        return build_coco(image_set, args)
-    if args.dataset_file == 'coco_panoptic':
-        # to avoid making panopticapi required for coco
-        from .coco_panoptic import build as build_coco_panoptic
-        return build_coco_panoptic(image_set, args)
-    if args.dataset_file == 'hico':
-        return build_hico(image_set, args)
-    if args.dataset_file == 'vcoco':
-        return build_vcoco(image_set, args)
-    if args.dataset_file == 'vaw':
-        return build_vaw(image_set, args)    
-    raise ValueError(f'dataset {args.dataset_file} not supported')
+    if args.mtl:
+        data = []
+        if 'vcoco' in args.mtl_data:
+            data.append(build_vcoco(image_set, args))
+        if 'hico' in args.mtl_data:
+            data.append(build_hico(image_set,args))
+        if 'vaw' in args.mtl_data:
+            data.append(build_vaw(image_set,args))
+
+
+    else:
+        if args.dataset_file == 'coco':
+            return build_coco(image_set, args)
+        if args.dataset_file == 'coco_panoptic':
+            # to avoid making panopticapi required for coco
+            from .coco_panoptic import build as build_coco_panoptic
+            return build_coco_panoptic(image_set, args)
+        if args.dataset_file == 'hico':
+            return build_hico(image_set, args)
+        if args.dataset_file == 'vcoco':
+            return build_vcoco(image_set, args)
+        if args.dataset_file == 'vaw':
+            return build_vaw(image_set, args)    
+        raise ValueError(f'dataset {args.dataset_file} not supported')

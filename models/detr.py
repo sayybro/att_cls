@@ -21,9 +21,11 @@ from .backbone import build_backbone
 from .matcher import build_matcher
 from .segmentation import (DETRsegm, PostProcessPanoptic, PostProcessSegm,
                            dice_loss, sigmoid_focal_loss)
-from .hoi import (DETRHOI, SetCriterionHOI, PostProcessHOI)
+from .hoi import (DETRHOI, SetCriterionHOI, PostProcessHOI), ATTHOI
 from .attr_cls import SetCriterionATT, build_attrclassifier, PostProcess_ATT
 from .transformer import build_transformer
+
+
 
 
 
@@ -319,7 +321,32 @@ def build(args):
     transformer = build_transformer(args)
     #attribute_classifier = build_attrclass(args,backbone,transformer)
 
-    if args.hoi: #hoi model (freeze)
+
+    if args.mtl:
+        num_classes,cost_class,num_obj_classes={},{},{}
+        if 'hico' in args.mtl_data or 'vcoco' in args.mtl_data:
+            if 'hico' in args.mtl_data:
+                num_classes.update({'hico':args.num_hico_verb_classes})
+            if 'vcoco' in args.mtl_data:
+                num_classes.update({'vcoco':args.num_vcoco_verb_classes})
+            cost_class.update({'hoi':args.set_cost_verb_class})
+        if 'vaw' in args.mtl_data:
+            num_classes.update({'att':args.num_att_classes}) #num_class : {'hico': 117, 'vcoco': 29, 'att': 620}
+            cost_class.update({'att':args.set_cost_att}) #{'hoi': 1, 'att': 1}
+
+        args.cost_class = cost_class
+        model = ATTHOI(
+            backbone,
+            transformer,
+            num_obj_classes=args.num_obj_classes, #81
+            num_classes= num_classes, #{'hico': 117, 'vcoco': 29, 'att': 620}
+            num_queries=args.num_queries, #100
+            aux_loss=args.aux_loss,
+            args=args,
+        )
+
+
+    elif args.hoi: #hoi model (freeze)
         model = DETRHOI(
             backbone,
             transformer,
@@ -342,7 +369,8 @@ def build(args):
 
         #for attribute classifier
         attribute_classifier = build_attrclassifier(args,backbone,transformer)
-        
+    
+    #object detection (defualt)
     else:
         model = DETR(
             backbone,
@@ -380,43 +408,73 @@ def build(args):
             aux_weight_dict.update({k + f'_{i}': v for k, v in weight_dict.items()})
         weight_dict.update(aux_weight_dict)
 
-    if args.hoi:
-        losses = ['obj_labels', 'verb_labels', 'sub_obj_boxes', 'obj_cardinality']
-        criterion = SetCriterionHOI(args.num_obj_classes, args.num_queries, args.num_verb_classes, matcher=matcher,
-                                    weight_dict=weight_dict, eos_coef=args.eos_coef, losses=losses,
-                                    verb_loss_type=args.verb_loss_type)
+    if args.mtl:
+        losses=[]
+        num_classes = {}
+        if ('hico' in args.mtl_data) or ('vcoco' in args.mtl_data):
+            losses.extend(['obj_labels', 'verb_labels', 'sub_obj_boxes', 'obj_cardinality'])
+            if 'hico' in args.mtl_data:
+                num_classes.update({'hico':args.num_hico_verb_classes})
+            if 'vcoco' in args.mtl_data:
+                num_classes.update({'vcoco':args.num_vcoco_verb_classes})
+        if 'vaw' in args.mtl_data:
+            losses.extend(['att_labels'])
+            num_classes.update({'vaw':args.num_att_classes})
 
-    elif args.att_det:
-        #losses = ['obj_labels','att_labels']
-        losses = ['att_labels']
-        #criterion = SetCriterionATT(num_obj_classes=args.num_obj_classes, num_att_classes=args.num_att_classes, weight_dict=weight_dict, eos_coef=args.eos_coef, losses=losses, loss_type=args.att_loss_type)
-        criterion = SetCriterionATT(num_att_classes=args.num_att_classes, weight_dict=weight_dict, losses=losses, loss_type=args.att_loss_type)
-        
+        criterion = {} 
+        if ('hico' in args.mtl_data) or ('vcoco' in args.mtl_data):
+            criterion.update({'hoi':SetCriterionHOI(args.num_obj_classes, args.num_queries, num_classes, matcher=matcher,
+                                weight_dict=weight_dict, eos_coef=args.eos_coef, losses=losses,
+                                loss_type=args.loss_type,args=args)})
+        if 'vaw' in args.mtld_data:
+            criterion.update({'att':SetCriterionATT(num_att_classes=args.num_att_classes, weight_dict=weight_dict, losses=losses, loss_type=args.att_loss_type)})
 
-    else:
-        losses = ['labels', 'boxes', 'cardinality']
-        if args.masks:
-            losses += ["masks"]
-        criterion = SetCriterion(num_classes, matcher=matcher, weight_dict=weight_dict,
-                                 eos_coef=args.eos_coef, losses=losses)
-    criterion.to(device)
+        postprocessors = {}
+        if ('hico' in args.mtl_data) or ('vcoco' in args.mtl_data):
+            postprocessors.update({'hoi':PostProcessHOI(args.subject_category_id)})
+        if 'vaw' in args.mtl_data:
+            postprocessors.update({'att':PostProcess_ATT()})
 
-    if args.hoi:
-        postprocessors = {'hoi': PostProcessHOI(args.subject_category_id)}
-
-    elif args.att_det:
-        postprocessors = PostProcess_ATT()
-
-    else:
-        postprocessors = {'bbox': PostProcess()}
-        if args.masks:
-            postprocessors['segm'] = PostProcessSegm()
-            if args.dataset_file == "coco_panoptic":
-                is_thing_map = {i: i <= 90 for i in range(201)}
-                postprocessors["panoptic"] = PostProcessPanoptic(is_thing_map, threshold=0.85)
-    
-    if args.hoi:
         return model, criterion, postprocessors
-    
-    elif args.att_det:
-        return model, attribute_classifier, criterion, postprocessors
+
+    else:
+        if args.hoi:
+            losses = ['obj_labels', 'verb_labels', 'sub_obj_boxes', 'obj_cardinality']
+            criterion = SetCriterionHOI(args.num_obj_classes, args.num_queries, args.num_verb_classes, matcher=matcher,
+                                        weight_dict=weight_dict, eos_coef=args.eos_coef, losses=losses,
+                                        verb_loss_type=args.verb_loss_type)
+
+        elif args.att_det:
+            #losses = ['obj_labels','att_labels']
+            losses = ['att_labels']
+            #criterion = SetCriterionATT(num_obj_classes=args.num_obj_classes, num_att_classes=args.num_att_classes, weight_dict=weight_dict, eos_coef=args.eos_coef, losses=losses, loss_type=args.att_loss_type)
+            criterion = SetCriterionATT(num_att_classes=args.num_att_classes, weight_dict=weight_dict, losses=losses, loss_type=args.att_loss_type)
+            
+
+        else:
+            losses = ['labels', 'boxes', 'cardinality']
+            if args.masks:
+                losses += ["masks"]
+            criterion = SetCriterion(num_classes, matcher=matcher, weight_dict=weight_dict,
+                                    eos_coef=args.eos_coef, losses=losses)
+        criterion.to(device)
+
+        if args.hoi:
+            postprocessors = {'hoi': PostProcessHOI(args.subject_category_id)}
+
+        elif args.att_det:
+            postprocessors = PostProcess_ATT()
+
+        else:
+            postprocessors = {'bbox': PostProcess()}
+            if args.masks:
+                postprocessors['segm'] = PostProcessSegm()
+                if args.dataset_file == "coco_panoptic":
+                    is_thing_map = {i: i <= 90 for i in range(201)}
+                    postprocessors["panoptic"] = PostProcessPanoptic(is_thing_map, threshold=0.85)
+        
+        if args.hoi:
+            return model, criterion, postprocessors
+        
+        elif args.att_det:
+            return model, attribute_classifier, criterion, postprocessors
