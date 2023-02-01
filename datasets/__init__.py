@@ -32,7 +32,7 @@ def build_dataset(image_set, args):
             data.append(build_hico(image_set,args))
         if 'vaw' in args.mtl_data:
             data.append(build_vaw(image_set,args))
-
+        return data
 
     else:
         if args.dataset_file == 'coco':

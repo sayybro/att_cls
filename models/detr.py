@@ -21,7 +21,7 @@ from .backbone import build_backbone
 from .matcher import build_matcher
 from .segmentation import (DETRsegm, PostProcessPanoptic, PostProcessSegm,
                            dice_loss, sigmoid_focal_loss)
-from .hoi import (DETRHOI, SetCriterionHOI, PostProcessHOI), ATTHOI
+from .hoi import DETRHOI, SetCriterionHOI, PostProcessHOI, ATTHOI
 from .attr_cls import SetCriterionATT, build_attrclassifier, PostProcess_ATT
 from .transformer import build_transformer
 
@@ -409,6 +409,7 @@ def build(args):
         weight_dict.update(aux_weight_dict)
 
     if args.mtl:
+        import pdb; pdb.set_trace()
         losses=[]
         num_classes = {}
         if ('hico' in args.mtl_data) or ('vcoco' in args.mtl_data):
@@ -426,7 +427,7 @@ def build(args):
             criterion.update({'hoi':SetCriterionHOI(args.num_obj_classes, args.num_queries, num_classes, matcher=matcher,
                                 weight_dict=weight_dict, eos_coef=args.eos_coef, losses=losses,
                                 loss_type=args.loss_type,args=args)})
-        if 'vaw' in args.mtld_data:
+        if 'vaw' in args.mtl_data:
             criterion.update({'att':SetCriterionATT(num_att_classes=args.num_att_classes, weight_dict=weight_dict, losses=losses, loss_type=args.att_loss_type)})
 
         postprocessors = {}

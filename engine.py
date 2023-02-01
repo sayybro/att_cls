@@ -143,12 +143,23 @@ def train_one_epoch(model: torch.nn.Module, criterion: torch.nn.Module,
 def mtl_train_one_epoch(model: torch.nn.Module, criterion: torch.nn.Module,
                     data_loader, optimizer: torch.optim.Optimizer,
                     device: torch.device, epoch: int, max_norm: float = 0, log: bool = False, args=None):
+    if 'att' in criterion:
+        att_criterion = criterion['att']
+        att_criterion.train()
+    if 'hoi' in criterion:
+        
+        hoi_criterion = criterion['hoi']
+        hoi_criterion.train()
+    
+    import pdb; pdb.set_trace()
+    del criterion
+    
     model.train()
-    criterion.train()
     
     metric_logger = utils.MetricLogger(delimiter="") 
     metric_logger.add_meter('lr', utils.SmoothedValue(window_size=1, fmt='{value:.6f}'))
     
+    import pdb; pdb.set_trace()
     if hasattr(criterion, 'loss_labels'):
         metric_logger.add_meter('class_error', utils.SmoothedValue(window_size=1, fmt='{value:.2f}'))
     
