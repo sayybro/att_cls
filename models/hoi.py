@@ -41,11 +41,15 @@ class ATTHOI(nn.Module):
 
         if args.mtl:
             if 'hico' in args.mtl_data or 'vcoco' in args.mtl_data:
+                self.obj_class_embed = nn.Linear(hidden_dim, num_obj_classes + 1)
+                self.obj_bbox_embed = MLP(hidden_dim, hidden_dim, 4, 3)
                 self.sub_bbox_embed = MLP(hidden_dim, hidden_dim, 4, 3)
                 if 'vcoco' in args.mtl_data:
                     self.vcoco_verb_class_embed = nn.Linear(hidden_dim, num_classes['vcoco'])  
                 if 'hico' in args.mtl_data:
                     self.hico_verb_class_embed = nn.Linear(hidden_dim, num_classes['hico']) 
+        
+        
         
         self.obj_bbox_embed = MLP(hidden_dim, hidden_dim, 4, 3)
         self.input_proj = nn.Conv2d(backbone.num_channels, hidden_dim, kernel_size=1)  
@@ -53,8 +57,8 @@ class ATTHOI(nn.Module):
         self.aux_loss = aux_loss
 
     #forward method for attribute classification (use backbone + transformer encoder + att classifier)
-    def forward_a(self, samples: NestedTensor, dtype: str='', dataset:str=''):
-
+    def forward_a(self, model, samples, targets, dtype, dataset):
+        
         assert dtype == 'att' and dataset == 'vaw'
 
         if not isinstance(samples, NestedTensor):
@@ -119,7 +123,6 @@ class ATTHOI(nn.Module):
             outputs_class = self.vcoco_verb_class_embed(hs)            
 
         outputs_obj_class = self.obj_class_embed(hs)
-        
         outputs_obj_coord = self.obj_bbox_embed(hs).sigmoid()
 
         out = {'pred_obj_logits': outputs_obj_class[-1], 'pred_logits': outputs_class[-1],
@@ -209,7 +212,7 @@ class MLP(nn.Module):
 
 class SetCriterionHOI(nn.Module):
 
-    def __init__(self, num_obj_classes, num_queries, num_verb_classes, matcher, weight_dict, eos_coef, losses, verb_loss_type):
+    def __init__(self, num_obj_classes, num_queries, num_verb_classes, matcher, weight_dict, eos_coef, losses, verb_loss_type, args=None):
         super().__init__()
 
         assert verb_loss_type == 'bce' or verb_loss_type == 'focal'
@@ -231,9 +234,12 @@ class SetCriterionHOI(nn.Module):
         src_logits = outputs['pred_obj_logits']
 
         idx = self._get_src_permutation_idx(indices)
+
         target_classes_o = torch.cat([t['obj_labels'][J] for t, (_, J) in zip(targets, indices)])
         target_classes = torch.full(src_logits.shape[:2], self.num_obj_classes,
                                     dtype=torch.int64, device=src_logits.device)
+        
+        import pdb; pdb.set_trace()
         target_classes[idx] = target_classes_o
 
         loss_obj_ce = F.cross_entropy(src_logits.transpose(1, 2), target_classes, self.empty_weight)
@@ -359,6 +365,11 @@ class SetCriterionHOI(nn.Module):
 
         # Compute all the requested losses
         losses = {}
+        
+        del targets[0]['type']
+        del targets[0]['dataset']
+        targets = [targets[0]]
+
         for loss in self.losses:
             losses.update(self.get_loss(loss, outputs, targets, indices, num_interactions))
 
@@ -439,7 +450,7 @@ class SetCriterionATT(nn.Module):
     def loss_att_labels(self, outputs, targets, log=True):
         
         #attribute predictions
-        src_logits = outputs['att_preds'] 
+        src_logits = outputs
 
         #attribute target
         target_classes = torch.zeros_like(src_logits)
@@ -500,8 +511,7 @@ class SetCriterionATT(nn.Module):
         loss_map = {
             'att_labels':self.loss_att_labels
         }
-
-        return loss_map[loss](outputs,targets,**kwargs)
+        return loss_map['att_labels'](outputs,targets,**kwargs) #outputs.shape : torch.Size([23, 620])
 
     def postprocess_att(self, targets):
 
@@ -529,6 +539,7 @@ class SetCriterionATT(nn.Module):
 
         #compute all requested losses
         losses = {}
+        #outputs
         for loss in self.losses:
             losses.update(self.get_loss(loss, outputs, targets))
 

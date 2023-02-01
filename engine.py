@@ -151,7 +151,6 @@ def mtl_train_one_epoch(model: torch.nn.Module, criterion: torch.nn.Module,
         hoi_criterion = criterion['hoi']
         hoi_criterion.train()
     
-    import pdb; pdb.set_trace()
     del criterion
     
     model.train()
@@ -159,9 +158,8 @@ def mtl_train_one_epoch(model: torch.nn.Module, criterion: torch.nn.Module,
     metric_logger = utils.MetricLogger(delimiter="") 
     metric_logger.add_meter('lr', utils.SmoothedValue(window_size=1, fmt='{value:.6f}'))
     
-    import pdb; pdb.set_trace()
-    if hasattr(criterion, 'loss_labels'):
-        metric_logger.add_meter('class_error', utils.SmoothedValue(window_size=1, fmt='{value:.2f}'))
+    # if hasattr(criterion, 'loss_labels'):
+    #     metric_logger.add_meter('class_error', utils.SmoothedValue(window_size=1, fmt='{value:.2f}'))
     
     header = 'Epoch: [{}]'.format(epoch)    
     print_freq = 10
@@ -171,30 +169,28 @@ def mtl_train_one_epoch(model: torch.nn.Module, criterion: torch.nn.Module,
         assert len(set([t['dataset'] for t in targets]))==1
         samples = samples.to(device)
         targets = [{k: v.to(device)  if type(v)!=str else v for k, v in t.items()} for t in targets]
-        target_verb = [target['verb_labels'] for target in targets]
+        
+        if targets[0]['type'] == 'hoi':
+            target_verb = [target['verb_labels'] for target in targets]
+    
         dtype=targets[0]['type']
         dataset=targets[0]['dataset']
         
         if dtype =='hoi':
             outputs = model(samples,dtype,dataset)
-            loss_dict = criterion['hoi'](outputs,targets)
-            weight_dict = criterion['hoi'].weight_dict
+            loss_dict = hoi_criterion(outputs,targets)
+            weight_dict = hoi_criterion.weight_dict
+            losses = sum(loss_dict[k] * weight_dict[k] for k in loss_dict.keys() if k in weight_dict)
+#            import pdb; pdb.set_trace()
+
+        if dtype == 'att':
+            outputs = model.forward_a(model,samples,targets,dtype,dataset)
+            loss_dict = att_criterion(outputs,targets)
+            weight_dict = att_criterion.weight_dict
+            losses = sum(loss_dict[k] * weight_dict[k] for k in loss_dict.keys() if k in weight_dict)
+            import pdb; pdb.set_trace()
         
-        if dtype == 'vaw':
-            outputs = model.forward_a(samples,dtype,dataset)
-            if loss_dict:
-                loss_dict.update(criterion['att'](outputs,targets))
-            else:
-                loss_dict = criterion['att'](outputs,targets)
-            #loss_dict = criterion['att'](outputs,targets)
-            
-            if weight_dict:
-                weight_dict.update(criterion['att'].weight_dict)
-            else:
-                weight_dict = criterion['att'].weight_dict
-        
-        #import pdb; pdb.set_trace()
-        losses = sum(loss_dict[k] * weight_dict[k] for k in loss_dict.keys() if k in weight_dict)
+
 
         # reduce losses over all GPUs for logging purposes
         loss_dict_reduced = utils.reduce_dict(loss_dict)

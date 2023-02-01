@@ -16,16 +16,15 @@ import numpy as np
 import torch
 from torch.utils.data import DataLoader, DistributedSampler
 import datasets
-import util.misc as utils
 from datasets import build_dataset, get_coco_api_from_dataset
 from engine import evaluate, train_one_epoch, evaluate_hoi, vaw_train_one_epoch, evaluate_att, mtl_train_one_epoch
 from models import build_model
 import wandb
-from pytorch_lightning.trainer.supporters import CombinedLoader
+#from pytorch_lightning.trainer.supporters import CombinedLoader
 from torch.utils.data.dataset import ConcatDataset
 from util.mtl_loader import MultiTaskDataLoader,CombinationDataset
 from util.sampler import BatchSchedulerSampler, ComboBatchSampler
-
+import util.misc as utils
 
 def get_args_parser():
     parser = argparse.ArgumentParser('Set transformer detector', add_help=False)
@@ -144,6 +143,7 @@ def get_args_parser():
 
     # mtl
     parser.add_argument('--mtl', action='store_true')
+    #import pdb; pdb.set_trace()
     parser.add_argument('--mtl_data', type=utils.arg_as_list,default=[],
                             help='[hico,vcoco,vaw]')
     parser.add_argument('--num_hico_verb_classes', type=int, default=117,
@@ -167,7 +167,6 @@ def get_args_parser():
 def main(args):
     utils.init_distributed_mode(args)
     print("git:\n  {}\n".format(utils.get_sha()))
-
     if args.frozen_weights is not None:
         assert args.masks, "Frozen training is meant for segmentation only"
     print(args)

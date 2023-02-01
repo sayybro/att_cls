@@ -60,6 +60,8 @@ class HungarianMatcher(nn.Module):
         bs, num_queries = outputs["pred_logits"].shape[:2]
 
         # We flatten to compute the cost matrices in a batch
+
+        import pdb; pdb.set_trace()
         out_prob = outputs["pred_logits"].flatten(0, 1).softmax(-1)  # [batch_size * num_queries, num_classes]
         out_bbox = outputs["pred_boxes"].flatten(0, 1)  # [batch_size * num_queries, 4]
 
@@ -104,13 +106,10 @@ class HungarianMatcherHOI(nn.Module):
 
     @torch.no_grad()
     def forward(self, outputs, targets):
-        #targets : dict_keys(['orig_size', 'size', 'boxes', 'labels', 'pos_att_classes', 'neg_att_classes', 'iscrowd', 'area', 'type', 'dataset'])
-        #outputs : dict_keys(['pred_obj_logits', 'pred_verb_logits', 'pred_sub_boxes', 'pred_obj_boxes']) -> inference 할 때만 사용
         #import pdb; pdb.set_trace()
         bs, num_queries = outputs['pred_obj_logits'].shape[:2]
-
         out_obj_prob = outputs['pred_obj_logits'].flatten(0, 1).softmax(-1)
-        out_verb_prob = outputs['pred_verb_logits'].flatten(0, 1).sigmoid()
+        out_verb_prob = outputs['pred_logits'].flatten(0, 1).sigmoid()
         out_sub_bbox = outputs['pred_sub_boxes'].flatten(0, 1)
         out_obj_bbox = outputs['pred_obj_boxes'].flatten(0, 1)
 
@@ -152,7 +151,7 @@ class HungarianMatcherHOI(nn.Module):
         return [(torch.as_tensor(i, dtype=torch.int64), torch.as_tensor(j, dtype=torch.int64)) for i, j in indices]
 
 def build_matcher(args):
-    if args.hoi:
+    if args.hoi or 'vcoco' in args.mtl_data or 'hico' in args.mtl_data:
         return HungarianMatcherHOI(cost_obj_class=args.set_cost_obj_class, cost_verb_class=args.set_cost_verb_class,
                                    cost_bbox=args.set_cost_bbox, cost_giou=args.set_cost_giou)
     else:
