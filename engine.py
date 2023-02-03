@@ -181,14 +181,16 @@ def mtl_train_one_epoch(model: torch.nn.Module, criterion: torch.nn.Module,
             loss_dict = hoi_criterion(outputs,targets)
             weight_dict = hoi_criterion.weight_dict
             losses = sum(loss_dict[k] * weight_dict[k] for k in loss_dict.keys() if k in weight_dict)
-#            import pdb; pdb.set_trace()
 
+        #critreion 하나로 합치기 
         if dtype == 'att':
-            outputs = model.forward_a(model,samples,targets,dtype,dataset)
+            if args.distributed:
+                outputs = model.module.forward_a(model,samples,targets,dtype,dataset)
+            else:
+                outputs = model.forward_a(model,samples,targets,dtype,dataset)
             loss_dict = att_criterion(outputs,targets)
             weight_dict = att_criterion.weight_dict
             losses = sum(loss_dict[k] * weight_dict[k] for k in loss_dict.keys() if k in weight_dict)
-            import pdb; pdb.set_trace()
         
 
 
@@ -213,8 +215,9 @@ def mtl_train_one_epoch(model: torch.nn.Module, criterion: torch.nn.Module,
         optimizer.step()
 
         metric_logger.update(loss=loss_value, **loss_dict_reduced_scaled)
-        if hasattr(criterion, 'loss_labels'):
-            metric_logger.update(class_error=loss_dict_reduced['class_error'])
+        #import pdb; pdb.set_trace()
+        # if hasattr(criterion, 'loss_labels'):
+        #     metric_logger.update(class_error=loss_dict_reduced['class_error'])
         metric_logger.update(lr=optimizer.param_groups[0]["lr"])
         
     metric_logger.synchronize_between_processes()

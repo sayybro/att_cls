@@ -129,7 +129,9 @@ def get_args_parser():
     parser.add_argument('--world_size', default=1, type=int,
                         help='number of distributed processes')
     parser.add_argument('--dist_url', default='env://', help='url used to set up distributed training')
+    parser.add_argument('--distributed', action='store_true', help='distributed training flag')
     
+
     #attribute classification command
     parser.add_argument('--num_att_classes', default=620, type=int,
                         help='number of distributed processes')
@@ -346,12 +348,13 @@ def main(args):
 
     for epoch in range(args.start_epoch, args.epochs):
         if args.distributed:
-            sampler_train.set_epoch(epoch)
+            for st in sampler_train:
+                st.set_epoch(epoch)
 
         if args.mtl:
             train_stats = mtl_train_one_epoch(
                 model, criterion, data_loader_train, optimizer, device, epoch,
-                args.clip_max_norm) 
+                args.clip_max_norm, args=args) 
 
         elif args.hoi:
             train_stats = train_one_epoch(

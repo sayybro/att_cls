@@ -123,7 +123,6 @@ class HICODetection(torch.utils.data.Dataset):
                 target['verb_labels'] = torch.as_tensor(verb_labels, dtype=torch.float32)
                 target['sub_boxes'] = torch.stack(sub_boxes)
                 target['obj_boxes'] = torch.stack(obj_boxes)
-        
             target['type'] = 'hoi'
             target['dataset'] = 'hico'
         else:
@@ -202,7 +201,9 @@ def make_hico_transforms(image_set):
 
 
 def build(image_set, args):
-    root = Path('data/hico')
+    
+    root = Path('data/hico_20160224_det')
+    
     assert root.exists(), f'provided HOI path {root} does not exist'
     PATHS = {
         'train': (root / 'images' / 'train2015', root / 'annotations' / 'trainval_hico.json'),

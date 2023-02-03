@@ -6,11 +6,9 @@ from pathlib import Path
 from PIL import Image
 import json
 import numpy as np
-
 import torch
 import torch.utils.data
 import torchvision
-
 import datasets.transforms as T
 
 class VCOCO(torch.utils.data.Dataset):

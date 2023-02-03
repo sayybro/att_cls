@@ -425,25 +425,28 @@ def build(args):
     #     weight_dict.update(aux_weight_dict)
 
     if args.mtl:
-        losses=[]
+        hoi_losses=[]
+        att_losses=[]
         num_classes = {}
         if ('hico' in args.mtl_data) or ('vcoco' in args.mtl_data):
-            losses.extend(['obj_labels', 'verb_labels', 'sub_obj_boxes', 'obj_cardinality'])
+            hoi_losses.extend(['obj_labels', 'verb_labels', 'sub_obj_boxes', 'obj_cardinality'])
             if 'hico' in args.mtl_data:
                 num_classes.update({'hico':args.num_hico_verb_classes})
             if 'vcoco' in args.mtl_data:
                 num_classes.update({'vcoco':args.num_vcoco_verb_classes})
         if 'vaw' in args.mtl_data:
-            losses.extend(['att_labels'])
+            att_losses.extend(['att_labels'])
             num_classes.update({'vaw':args.num_att_classes})
 
         criterion = {} 
         if ('hico' in args.mtl_data) or ('vcoco' in args.mtl_data):
             criterion.update({'hoi':SetCriterionHOI(args.num_obj_classes, args.num_queries, num_classes, matcher=matcher,
-                                weight_dict=hoi_weight_dict, eos_coef=args.eos_coef, losses=losses,
-                                verb_loss_type=args.verb_loss_type,args=args)})
+                                weight_dict=hoi_weight_dict, eos_coef=args.eos_coef, losses=hoi_losses,
+                                loss_type=args.verb_loss_type,args=args)})
+            criterion['hoi'].to(device)
         if 'vaw' in args.mtl_data:
-            criterion.update({'att':SetCriterionATT(num_att_classes=args.num_att_classes, weight_dict=att_weight_dict, losses=losses, loss_type=args.att_loss_type)})
+            criterion.update({'att':SetCriterionATT(num_att_classes=args.num_att_classes, weight_dict=att_weight_dict, losses=att_losses, loss_type=args.att_loss_type)})
+            criterion['att'].to(device)
 
         postprocessors = {}
         if ('hico' in args.mtl_data) or ('vcoco' in args.mtl_data):
