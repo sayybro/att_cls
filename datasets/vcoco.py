@@ -6,11 +6,9 @@ from pathlib import Path
 from PIL import Image
 import json
 import numpy as np
-
 import torch
 import torch.utils.data
 import torchvision
-
 import datasets.transforms as T
 
 class VCOCO(torch.utils.data.Dataset):
@@ -114,6 +112,8 @@ class VCOCO(torch.utils.data.Dataset):
                 target['verb_labels'] = torch.as_tensor(verb_labels, dtype=torch.float32)
                 target['sub_boxes'] = torch.stack(sub_boxes)
                 target['obj_boxes'] = torch.stack(obj_boxes)
+            target['type'] = 'hoi'
+            target['dataset'] = 'vcoco'
         else:
             target['boxes'] = boxes
             target['labels'] = classes
@@ -127,7 +127,8 @@ class VCOCO(torch.utils.data.Dataset):
             for hoi in img_anno['hoi_annotation']:
                 hois.append((hoi['subject_id'], hoi['object_id'], self._valid_verb_ids.index(hoi['category_id'])))
             target['hois'] = torch.as_tensor(hois, dtype=torch.int64)
-
+            target['type'] = 'hoi'
+            target['dataset'] = 'vcoco'
         return img, target
 
     def load_correct_mat(self, path):

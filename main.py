@@ -15,20 +15,16 @@ from pathlib import Path
 import numpy as np
 import torch
 from torch.utils.data import DataLoader, DistributedSampler
-
 import datasets
-import util.misc as utils
 from datasets import build_dataset, get_coco_api_from_dataset
-from engine import evaluate, train_one_epoch, evaluate_hoi, vaw_train_one_epoch, evaluate_att, evaluate_hoi_att, mtl_train_one_epoch
+from engine import evaluate, train_one_epoch, evaluate_hoi, vaw_train_one_epoch, evaluate_att, mtl_train_one_epoch
 from models import build_model
 import wandb
-
-#for multi task learning
+#from pytorch_lightning.trainer.supporters import CombinedLoader
 from torch.utils.data.dataset import ConcatDataset
 from util.mtl_loader import MultiTaskDataLoader,CombinationDataset
-from pytorch_lightning.trainer.supporters import CombinedLoader
-
-
+from util.sampler import BatchSchedulerSampler, ComboBatchSampler
+import util.misc as utils
 
 def get_args_parser():
     parser = argparse.ArgumentParser('Set transformer detector', add_help=False)
@@ -133,8 +129,10 @@ def get_args_parser():
     parser.add_argument('--world_size', default=1, type=int,
                         help='number of distributed processes')
     parser.add_argument('--dist_url', default='env://', help='url used to set up distributed training')
+    parser.add_argument('--distributed', action='store_true', help='distributed training flag')
     
-    #attribute command
+
+    #attribute classification command
     parser.add_argument('--num_att_classes', default=620, type=int,
                         help='number of distributed processes')
     parser.add_argument('--att_det', action='store_true')
@@ -142,9 +140,12 @@ def get_args_parser():
                         help='Loss type for the attribute classification')
     parser.add_argument('--att_loss_coef', type=float, default=1)
     parser.add_argument('--update_obj_att', action='store_true')
-    
+    parser.add_argument('--set_cost_att', default=1, type=float,
+                    help="Action coefficient in the matching cost")
+
     # mtl
     parser.add_argument('--mtl', action='store_true')
+    #import pdb; pdb.set_trace()
     parser.add_argument('--mtl_data', type=utils.arg_as_list,default=[],
                             help='[hico,vcoco,vaw]')
     parser.add_argument('--num_hico_verb_classes', type=int, default=117,
@@ -152,7 +153,13 @@ def get_args_parser():
     parser.add_argument('--num_vcoco_verb_classes', type=int, default=29,
                     help="Number of verb coco classes")
     
-    
+
+    # logging
+    parser.add_argument('--wandb', action='store_true')
+    parser.add_argument('--project_name', default='qpic')
+    parser.add_argument('--group_name', default='Neubla')
+    parser.add_argument('--run_name', default='train_num_1')
+
     #eval
     parser.add_argument('--max_pred', default=100, type=int)
 
@@ -162,7 +169,6 @@ def get_args_parser():
 def main(args):
     utils.init_distributed_mode(args)
     print("git:\n  {}\n".format(utils.get_sha()))
-
     if args.frozen_weights is not None:
         assert args.masks, "Frozen training is meant for segmentation only"
     print(args)
@@ -186,7 +192,7 @@ def main(args):
     else:
         model, criterion, postprocessors = build_model(args)
         model.to(device)
-
+        
     model_without_ddp = model
     if args.distributed:
         model = torch.nn.parallel.DistributedDataParallel(model, device_ids=[args.gpu])
@@ -208,8 +214,11 @@ def main(args):
     if args.mtl:
         dataset_train = build_dataset(image_set='train', args=args)
         dataset_val = build_dataset(image_set='val', args=args)
-        if 'vaw' in args.mtl_data:
-            args.num_att_classes = dataset_train[-1].num_attributes() 
+        #import pdb; pdb.set_trace()
+        
+        # if 'vaw' in args.mtl_data:
+        #     import pdb; pdb.set_trace()
+        #     args.num_att_classes = dataset_train[-1].num_attributes() 
         if args.distributed:
             sampler_train = [torch.utils.data.DistributedSampler(d) for d in dataset_train]
             sampler_val = [torch.utils.data.DistributedSampler(dv,shuffle=False) for dv in dataset_val]
@@ -339,12 +348,13 @@ def main(args):
 
     for epoch in range(args.start_epoch, args.epochs):
         if args.distributed:
-            sampler_train.set_epoch(epoch)
+            for st in sampler_train:
+                st.set_epoch(epoch)
 
         if args.mtl:
             train_stats = mtl_train_one_epoch(
                 model, criterion, data_loader_train, optimizer, device, epoch,
-                args.clip_max_norm) 
+                args.clip_max_norm, args=args) 
 
         elif args.hoi:
             train_stats = train_one_epoch(

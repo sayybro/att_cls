@@ -8,14 +8,15 @@ PY_ARGS=${@:1}
 python -u main.py \
     --pretrained params/detr-r50-pre-vaw.pth \
     --run_name ${EXP_DIR} \
+    --project_name QPIC_VAW \
     --mtl \
     --batch_size 8 \
     --update_obj_att \
     --epochs 90 \
     --lr_drop 30 \
-    --mtl_data [\'hico\',\'vcoco\',\'vaw\'] \
+    --dataset_file vaw \
     --num_obj_classes 81 \
     --num_verb_classes 117 \
     --backbone resnet50 \
-    --output_dir checkpoints/mtl/ \
+    --output_dir checkpoints/vaw/ \
     ${PY_ARGS}

@@ -21,8 +21,8 @@ from .backbone import build_backbone
 from .matcher import build_matcher
 from .segmentation import (DETRsegm, PostProcessPanoptic, PostProcessSegm,
                            dice_loss, sigmoid_focal_loss)
-from .hoi import (DETRHOI, SetCriterionHOI, PostProcessHOI), ATTHOI
-from .attr_cls import SetCriterionATT, build_attrclassifier, PostProcess_ATT
+from .hoi import DETRHOI, SetCriterionHOI, PostProcessHOI, ATTHOI, SetCriterionATT, PostProcess_ATT
+#from .attr_cls import SetCriterionATT, build_attrclassifier, PostProcess_ATT
 from .transformer import build_transformer
 
 
@@ -381,53 +381,72 @@ def build(args):
         )
         if args.masks:
             model = DETRsegm(model, freeze_detr=(args.frozen_weights is not None))
-    #matcher = build_matcher(args)
-    weight_dict = {}
-    if args.hoi:
-        weight_dict['loss_obj_ce'] = args.obj_loss_coef
-        weight_dict['loss_verb_ce'] = args.verb_loss_coef
-        weight_dict['loss_sub_bbox'] = args.bbox_loss_coef
-        weight_dict['loss_obj_bbox'] = args.bbox_loss_coef
-        weight_dict['loss_sub_giou'] = args.giou_loss_coef
-        weight_dict['loss_obj_giou'] = args.giou_loss_coef
-
-    elif args.att_det:
-        weight_dict['loss_att_obj_ce'] = args.obj_loss_coef
-        weight_dict['loss_att_ce'] = args.att_loss_coef
-    else:
-        weight_dict['loss_ce'] = 1
-        weight_dict['loss_bbox'] = args.bbox_loss_coef
-        weight_dict['loss_giou'] = args.giou_loss_coef
-        if args.masks:
-            weight_dict["loss_mask"] = args.mask_loss_coef
-            weight_dict["loss_dice"] = args.dice_loss_coef
-    # TODO this is a hack
-    if args.aux_loss:
-        aux_weight_dict = {}
-        for i in range(args.dec_layers - 1):
-            aux_weight_dict.update({k + f'_{i}': v for k, v in weight_dict.items()})
-        weight_dict.update(aux_weight_dict)
+    matcher = build_matcher(args)
 
     if args.mtl:
-        losses=[]
+        hoi_weight_dict = {}
+        att_weight_dict = {}
+        if 'vcoco' in args.mtl_data or 'hico' in args.mtl_data:
+            hoi_weight_dict['loss_obj_ce'] = args.obj_loss_coef
+            hoi_weight_dict['loss_verb_ce'] = args.verb_loss_coef
+            hoi_weight_dict['loss_sub_bbox'] = args.bbox_loss_coef
+            hoi_weight_dict['loss_obj_bbox'] = args.bbox_loss_coef
+            hoi_weight_dict['loss_sub_giou'] = args.giou_loss_coef
+            hoi_weight_dict['loss_obj_giou'] = args.giou_loss_coef
+        
+        if 'vaw' in args.mtl_data:
+            
+            att_weight_dict['loss_att_ce'] = args.att_loss_coef
+
+    else:
+        weight_dict = {}
+        if args.hoi:
+            weight_dict['loss_obj_ce'] = args.obj_loss_coef
+            weight_dict['loss_verb_ce'] = args.verb_loss_coef
+            weight_dict['loss_sub_bbox'] = args.bbox_loss_coef
+            weight_dict['loss_obj_bbox'] = args.bbox_loss_coef
+            weight_dict['loss_sub_giou'] = args.giou_loss_coef
+            weight_dict['loss_obj_giou'] = args.giou_loss_coef
+
+        elif args.att_det:
+            weight_dict['loss_att_ce'] = args.att_loss_coef
+        else:
+            weight_dict['loss_ce'] = 1
+            weight_dict['loss_bbox'] = args.bbox_loss_coef
+            weight_dict['loss_giou'] = args.giou_loss_coef
+            if args.masks:
+                weight_dict["loss_mask"] = args.mask_loss_coef
+                weight_dict["loss_dice"] = args.dice_loss_coef
+    # TODO this is a hack
+    # if args.aux_loss:
+    #     aux_weight_dict = {}
+    #     for i in range(args.dec_layers - 1):
+    #         aux_weight_dict.update({k + f'_{i}': v for k, v in weight_dict.items()})
+    #     weight_dict.update(aux_weight_dict)
+
+    if args.mtl:
+        hoi_losses=[]
+        att_losses=[]
         num_classes = {}
         if ('hico' in args.mtl_data) or ('vcoco' in args.mtl_data):
-            losses.extend(['obj_labels', 'verb_labels', 'sub_obj_boxes', 'obj_cardinality'])
+            hoi_losses.extend(['obj_labels', 'verb_labels', 'sub_obj_boxes', 'obj_cardinality'])
             if 'hico' in args.mtl_data:
                 num_classes.update({'hico':args.num_hico_verb_classes})
             if 'vcoco' in args.mtl_data:
                 num_classes.update({'vcoco':args.num_vcoco_verb_classes})
         if 'vaw' in args.mtl_data:
-            losses.extend(['att_labels'])
+            att_losses.extend(['att_labels'])
             num_classes.update({'vaw':args.num_att_classes})
 
         criterion = {} 
         if ('hico' in args.mtl_data) or ('vcoco' in args.mtl_data):
             criterion.update({'hoi':SetCriterionHOI(args.num_obj_classes, args.num_queries, num_classes, matcher=matcher,
-                                weight_dict=weight_dict, eos_coef=args.eos_coef, losses=losses,
-                                loss_type=args.loss_type,args=args)})
-        if 'vaw' in args.mtld_data:
-            criterion.update({'att':SetCriterionATT(num_att_classes=args.num_att_classes, weight_dict=weight_dict, losses=losses, loss_type=args.att_loss_type)})
+                                weight_dict=hoi_weight_dict, eos_coef=args.eos_coef, losses=hoi_losses,
+                                loss_type=args.verb_loss_type,args=args)})
+            criterion['hoi'].to(device)
+        if 'vaw' in args.mtl_data:
+            criterion.update({'att':SetCriterionATT(num_att_classes=args.num_att_classes, weight_dict=att_weight_dict, losses=att_losses, loss_type=args.att_loss_type)})
+            criterion['att'].to(device)
 
         postprocessors = {}
         if ('hico' in args.mtl_data) or ('vcoco' in args.mtl_data):
@@ -445,9 +464,7 @@ def build(args):
                                         verb_loss_type=args.verb_loss_type)
 
         elif args.att_det:
-            #losses = ['obj_labels','att_labels']
             losses = ['att_labels']
-            #criterion = SetCriterionATT(num_obj_classes=args.num_obj_classes, num_att_classes=args.num_att_classes, weight_dict=weight_dict, eos_coef=args.eos_coef, losses=losses, loss_type=args.att_loss_type)
             criterion = SetCriterionATT(num_att_classes=args.num_att_classes, weight_dict=weight_dict, losses=losses, loss_type=args.att_loss_type)
             
 

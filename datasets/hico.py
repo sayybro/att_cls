@@ -123,6 +123,8 @@ class HICODetection(torch.utils.data.Dataset):
                 target['verb_labels'] = torch.as_tensor(verb_labels, dtype=torch.float32)
                 target['sub_boxes'] = torch.stack(sub_boxes)
                 target['obj_boxes'] = torch.stack(obj_boxes)
+            target['type'] = 'hoi'
+            target['dataset'] = 'hico'
         else:
             target['boxes'] = boxes
             target['labels'] = classes
@@ -135,7 +137,8 @@ class HICODetection(torch.utils.data.Dataset):
             for hoi in img_anno['hoi_annotation']:
                 hois.append((hoi['subject_id'], hoi['object_id'], self._valid_verb_ids.index(hoi['category_id'])))
             target['hois'] = torch.as_tensor(hois, dtype=torch.int64)
-
+            target['type'] = 'hoi'
+            target['dataset'] = 'hico'
         return img, target
 
     def set_rare_hois(self, anno_file):
@@ -198,7 +201,9 @@ def make_hico_transforms(image_set):
 
 
 def build(image_set, args):
-    root = Path('data/hico')
+    
+    root = Path('data/hico_20160224_det')
+    
     assert root.exists(), f'provided HOI path {root} does not exist'
     PATHS = {
         'train': (root / 'images' / 'train2015', root / 'annotations' / 'trainval_hico.json'),

@@ -28,7 +28,7 @@ class ATTHOI(nn.Module):
         self.num_queries = num_queries
         self.transformer = transformer
         hidden_dim = transformer.d_model #256
-        self.query_embed = nn.Embedding(num_queries, hidden_dim)        
+        self.query_embed = nn.Embedding(num_queries, hidden_dim)
         self.mtl = args.mtl
  
         if 'vaw' in args.mtl_data:
@@ -41,11 +41,15 @@ class ATTHOI(nn.Module):
 
         if args.mtl:
             if 'hico' in args.mtl_data or 'vcoco' in args.mtl_data:
+                self.obj_class_embed = nn.Linear(hidden_dim, num_obj_classes + 1)
+                self.obj_bbox_embed = MLP(hidden_dim, hidden_dim, 4, 3)
                 self.sub_bbox_embed = MLP(hidden_dim, hidden_dim, 4, 3)
                 if 'vcoco' in args.mtl_data:
                     self.vcoco_verb_class_embed = nn.Linear(hidden_dim, num_classes['vcoco'])  
                 if 'hico' in args.mtl_data:
                     self.hico_verb_class_embed = nn.Linear(hidden_dim, num_classes['hico']) 
+        
+        
         
         self.obj_bbox_embed = MLP(hidden_dim, hidden_dim, 4, 3)
         self.input_proj = nn.Conv2d(backbone.num_channels, hidden_dim, kernel_size=1)  
@@ -53,8 +57,8 @@ class ATTHOI(nn.Module):
         self.aux_loss = aux_loss
 
     #forward method for attribute classification (use backbone + transformer encoder + att classifier)
-    def forward_a(self, samples: NestedTensor, dtype: str='', dataset:str=''):
-
+    def forward_a(self, model, samples, targets, dtype, dataset):
+        
         assert dtype == 'att' and dataset == 'vaw'
 
         if not isinstance(samples, NestedTensor):
@@ -119,7 +123,6 @@ class ATTHOI(nn.Module):
             outputs_class = self.vcoco_verb_class_embed(hs)            
 
         outputs_obj_class = self.obj_class_embed(hs)
-        
         outputs_obj_coord = self.obj_bbox_embed(hs).sigmoid()
 
         out = {'pred_obj_logits': outputs_obj_class[-1], 'pred_logits': outputs_class[-1],
@@ -168,9 +171,7 @@ class DETRHOI(nn.Module):
         if not isinstance(samples, NestedTensor):
             samples = nested_tensor_from_tensor_list(samples)
         features, pos = self.backbone(samples)
-        #import pdb; pdb.set_trace()
         src, mask = features[-1].decompose() #src.shape torch.Size([8, 2048, 32, 32])
-        #import pdb; pdb.set_trace()
         assert mask is not None
         hs = self.transformer(self.input_proj(src), mask, self.query_embed.weight, pos[-1])[0]
         outputs_obj_class = self.obj_class_embed(hs)
@@ -209,12 +210,191 @@ class MLP(nn.Module):
         return x
 
 
+# class SetCriterionHOI(nn.Module):
+
+#     def __init__(self, num_obj_classes, num_queries, num_verb_classes, matcher, weight_dict, eos_coef, losses, verb_loss_type, args=None):
+#         super().__init__()
+
+#         assert verb_loss_type == 'bce' or verb_loss_type == 'focal'
+
+#         self.num_obj_classes = num_obj_classes
+#         self.num_queries = num_queries
+#         self.num_verb_classes = num_verb_classes
+#         self.matcher = matcher
+#         self.weight_dict = weight_dict
+#         self.eos_coef = eos_coef
+#         self.losses = losses
+#         empty_weight = torch.ones(self.num_obj_classes + 1)
+#         empty_weight[-1] = self.eos_coef
+#         self.register_buffer('empty_weight', empty_weight)
+#         self.verb_loss_type = verb_loss_type
+
+#     def loss_obj_labels(self, outputs, targets, indices, num_interactions, log=True):
+#         assert 'pred_obj_logits' in outputs
+#         src_logits = outputs['pred_obj_logits']
+
+#         idx = self._get_src_permutation_idx(indices)
+
+#         target_classes_o = torch.cat([t['obj_labels'][J] for t, (_, J) in zip(targets, indices)])
+#         target_classes = torch.full(src_logits.shape[:2], self.num_obj_classes,
+#                                     dtype=torch.int64, device=src_logits.device)
+        
+#         #import pdb; pdb.set_trace()
+#         target_classes[idx] = target_classes_o
+
+#         loss_obj_ce = F.cross_entropy(src_logits.transpose(1, 2), target_classes, self.empty_weight)
+#         losses = {'loss_obj_ce': loss_obj_ce}
+
+#         if log:
+#             losses['obj_class_error'] = 100 - accuracy(src_logits[idx], target_classes_o)[0]
+#         return losses
+
+#     @torch.no_grad()
+#     def loss_obj_cardinality(self, outputs, targets, indices, num_interactions):
+#         pred_logits = outputs['pred_obj_logits']
+#         device = pred_logits.device
+#         tgt_lengths = torch.as_tensor([len(v['obj_labels']) for v in targets], device=device)
+#         card_pred = (pred_logits.argmax(-1) != pred_logits.shape[-1] - 1).sum(1)
+#         card_err = F.l1_loss(card_pred.float(), tgt_lengths.float())
+#         losses = {'obj_cardinality_error': card_err}
+#         return losses
+
+#     def loss_verb_labels(self, outputs, targets, indices, num_interactions):
+#         assert 'pred_verb_logits' in outputs
+#         src_logits = outputs['pred_verb_logits']
+
+#         idx = self._get_src_permutation_idx(indices)
+#         target_classes_o = torch.cat([t['verb_labels'][J] for t, (_, J) in zip(targets, indices)])
+#         target_classes = torch.zeros_like(src_logits)
+#         target_classes[idx] = target_classes_o
+
+#         if self.verb_loss_type == 'bce':
+#             loss_verb_ce = F.binary_cross_entropy_with_logits(src_logits, target_classes)
+#         elif self.verb_loss_type == 'focal':
+#             src_logits = src_logits.sigmoid()
+#             loss_verb_ce = self._neg_loss(src_logits, target_classes)
+
+#         losses = {'loss_verb_ce': loss_verb_ce}
+#         return losses
+
+#     def loss_sub_obj_boxes(self, outputs, targets, indices, num_interactions):
+#         assert 'pred_sub_boxes' in outputs and 'pred_obj_boxes' in outputs
+#         idx = self._get_src_permutation_idx(indices)
+#         src_sub_boxes = outputs['pred_sub_boxes'][idx]
+#         src_obj_boxes = outputs['pred_obj_boxes'][idx]
+#         target_sub_boxes = torch.cat([t['sub_boxes'][i] for t, (_, i) in zip(targets, indices)], dim=0)
+#         target_obj_boxes = torch.cat([t['obj_boxes'][i] for t, (_, i) in zip(targets, indices)], dim=0)
+
+#         exist_obj_boxes = (target_obj_boxes != 0).any(dim=1)
+
+#         losses = {}
+#         if src_sub_boxes.shape[0] == 0:
+#             losses['loss_sub_bbox'] = src_sub_boxes.sum()
+#             losses['loss_obj_bbox'] = src_obj_boxes.sum()
+#             losses['loss_sub_giou'] = src_sub_boxes.sum()
+#             losses['loss_obj_giou'] = src_obj_boxes.sum()
+#         else:
+#             loss_sub_bbox = F.l1_loss(src_sub_boxes, target_sub_boxes, reduction='none')
+#             loss_obj_bbox = F.l1_loss(src_obj_boxes, target_obj_boxes, reduction='none')
+#             losses['loss_sub_bbox'] = loss_sub_bbox.sum() / num_interactions
+#             losses['loss_obj_bbox'] = (loss_obj_bbox * exist_obj_boxes.unsqueeze(1)).sum() / (exist_obj_boxes.sum() + 1e-4)
+#             loss_sub_giou = 1 - torch.diag(generalized_box_iou(box_cxcywh_to_xyxy(src_sub_boxes),
+#                                                                box_cxcywh_to_xyxy(target_sub_boxes)))
+#             loss_obj_giou = 1 - torch.diag(generalized_box_iou(box_cxcywh_to_xyxy(src_obj_boxes),
+#                                                                box_cxcywh_to_xyxy(target_obj_boxes)))
+#             losses['loss_sub_giou'] = loss_sub_giou.sum() / num_interactions
+#             losses['loss_obj_giou'] = (loss_obj_giou * exist_obj_boxes).sum() / (exist_obj_boxes.sum() + 1e-4)
+#         return losses
+
+#     def _neg_loss(self, pred, gt):
+#         ''' Modified focal loss. Exactly the same as CornerNet.
+#           Runs faster and costs a little bit more memory
+#         '''
+#         pos_inds = gt.eq(1).float()
+#         neg_inds = gt.lt(1).float()
+
+#         loss = 0
+
+#         pos_loss = torch.log(pred) * torch.pow(1 - pred, 2) * pos_inds
+#         neg_loss = torch.log(1 - pred) * torch.pow(pred, 2) * neg_inds
+
+#         num_pos  = pos_inds.float().sum()
+#         pos_loss = pos_loss.sum()
+#         neg_loss = neg_loss.sum()
+
+#         if num_pos == 0:
+#             loss = loss - neg_loss
+#         else:
+#             loss = loss - (pos_loss + neg_loss) / num_pos
+
+#         return loss
+
+#     def _get_src_permutation_idx(self, indices):
+#         # permute predictions following indices
+#         batch_idx = torch.cat([torch.full_like(src, i) for i, (src, _) in enumerate(indices)])
+#         src_idx = torch.cat([src for (src, _) in indices])
+#         return batch_idx, src_idx
+
+#     def _get_tgt_permutation_idx(self, indices):
+#         # permute targets following indices
+#         batch_idx = torch.cat([torch.full_like(tgt, i) for i, (_, tgt) in enumerate(indices)])
+#         tgt_idx = torch.cat([tgt for (_, tgt) in indices])
+#         return batch_idx, tgt_idx
+
+#     def get_loss(self, loss, outputs, targets, indices, num, **kwargs):
+#         loss_map = {
+#             'obj_labels': self.loss_obj_labels,
+#             'obj_cardinality': self.loss_obj_cardinality,
+#             'verb_labels': self.loss_verb_labels,
+#             'sub_obj_boxes': self.loss_sub_obj_boxes
+#         }
+#         assert loss in loss_map, f'do you really want to compute {loss} loss?'
+#         return loss_map[loss](outputs, targets, indices, num, **kwargs)
+
+#     def forward(self, outputs, targets):
+#         outputs_without_aux = {k: v for k, v in outputs.items() if k != 'aux_outputs'}
+
+#         # Retrieve the matching between the outputs of the last layer and the targets
+#         indices = self.matcher(outputs_without_aux, targets)
+
+#         num_interactions = sum(len(t['obj_labels']) for t in targets)
+#         num_interactions = torch.as_tensor([num_interactions], dtype=torch.float, device=next(iter(outputs.values())).device)
+#         if is_dist_avail_and_initialized():
+#             torch.distributed.all_reduce(num_interactions)
+#         num_interactions = torch.clamp(num_interactions / get_world_size(), min=1).item()
+
+#         # Compute all the requested losses
+#         losses = {}
+        
+#         del targets[0]['type']
+#         del targets[0]['dataset']
+#         targets = [targets[0]]
+
+#         for loss in self.losses:
+#             losses.update(self.get_loss(loss, outputs, targets, indices, num_interactions))
+
+#         # In case of auxiliary losses, we repeat this process with the output of each intermediate layer.
+#         if 'aux_outputs' in outputs:
+#             for i, aux_outputs in enumerate(outputs['aux_outputs']):
+#                 indices = self.matcher(aux_outputs, targets)
+#                 for loss in self.losses:
+#                     kwargs = {}
+#                     if loss == 'obj_labels':
+#                         # Logging is enabled only for the last layer
+#                         kwargs = {'log': False}
+#                     l_dict = self.get_loss(loss, aux_outputs, targets, indices, num_interactions, **kwargs)
+#                     l_dict = {k + f'_{i}': v for k, v in l_dict.items()}
+#                     losses.update(l_dict)
+
+#         return losses
+
+
 class SetCriterionHOI(nn.Module):
 
-    def __init__(self, num_obj_classes, num_queries, num_verb_classes, matcher, weight_dict, eos_coef, losses, verb_loss_type):
+    def __init__(self, num_obj_classes, num_queries, num_verb_classes, matcher, weight_dict, eos_coef, losses, loss_type,args=None):
         super().__init__()
 
-        assert verb_loss_type == 'bce' or verb_loss_type == 'focal'
+        assert loss_type == 'bce' or loss_type == 'focal'
 
         self.num_obj_classes = num_obj_classes
         self.num_queries = num_queries
@@ -226,19 +406,31 @@ class SetCriterionHOI(nn.Module):
         empty_weight = torch.ones(self.num_obj_classes + 1)
         empty_weight[-1] = self.eos_coef
         self.register_buffer('empty_weight', empty_weight)
-        self.verb_loss_type = verb_loss_type
+        self.loss_type = loss_type
+        # if args.att_det or 'vaw' in args.mtl_data:
+        #     self.register_buffer('fed_loss_weight', load_class_freq(freq_weight=0.5))
 
-    def loss_obj_labels(self, outputs, targets, indices, num_interactions, log=True):
+    def loss_obj_labels(self, outputs, targets, indices, num_att_or_inter, dtype, log=True):
+        
+        #attr case
+        # if dtype=='att':
+        #     losses={'loss_obj_ce': outputs['pred_obj_logits'].new_zeros([1],dtype=torch.float32)[0]}
+        #     if log:
+        #         losses.update({'obj_class_error':outputs['pred_obj_logits'].new_zeros([1],dtype=torch.float32)[0]})
+        #     return losses
         assert 'pred_obj_logits' in outputs
+
         src_logits = outputs['pred_obj_logits']
 
         idx = self._get_src_permutation_idx(indices)
+
         target_classes_o = torch.cat([t['obj_labels'][J] for t, (_, J) in zip(targets, indices)])
         target_classes = torch.full(src_logits.shape[:2], self.num_obj_classes,
                                     dtype=torch.int64, device=src_logits.device)
+        
         target_classes[idx] = target_classes_o
-
-        loss_obj_ce = F.cross_entropy(src_logits.transpose(1, 2), target_classes, self.empty_weight)
+        
+        loss_obj_ce = F.cross_entropy(src_logits.transpose(1, 2), target_classes, self.empty_weight) #self.empty_weight.shape : torch.Size([82])
         losses = {'loss_obj_ce': loss_obj_ce}
 
         if log:
@@ -246,34 +438,43 @@ class SetCriterionHOI(nn.Module):
         return losses
 
     @torch.no_grad()
-    def loss_obj_cardinality(self, outputs, targets, indices, num_interactions):
+    def loss_obj_cardinality(self, outputs, targets, indices, num_att_or_inter, dtype):
+        # if dtype=='att':
+        #     return {'obj_cardinality_error': outputs['pred_obj_logits'].new_zeros([1],dtype=torch.float32)[0]}
         pred_logits = outputs['pred_obj_logits']
         device = pred_logits.device
-        tgt_lengths = torch.as_tensor([len(v['obj_labels']) for v in targets], device=device)
-        card_pred = (pred_logits.argmax(-1) != pred_logits.shape[-1] - 1).sum(1)
+        tgt_lengths = torch.as_tensor([len(v['obj_labels']) for v in targets], device=device)        
+        card_pred = (pred_logits.argmax(-1) != pred_logits.shape[-1] - 1).sum(1) 
         card_err = F.l1_loss(card_pred.float(), tgt_lengths.float())
         losses = {'obj_cardinality_error': card_err}
         return losses
 
-    def loss_verb_labels(self, outputs, targets, indices, num_interactions):
-        assert 'pred_verb_logits' in outputs
-        src_logits = outputs['pred_verb_logits']
-
+    def loss_verb_labels(self, outputs, targets, indices, num_att_or_inter, dtype):
+        if dtype=='att':
+            return {'loss_verb_ce': outputs['pred_logits'].new_zeros([1],dtype=torch.float32)[0]}
+        assert 'pred_logits' in outputs
+        src_logits = outputs['pred_logits']
         idx = self._get_src_permutation_idx(indices)
         target_classes_o = torch.cat([t['verb_labels'][J] for t, (_, J) in zip(targets, indices)])
         target_classes = torch.zeros_like(src_logits)
         target_classes[idx] = target_classes_o
 
-        if self.verb_loss_type == 'bce':
+        if self.loss_type == 'bce':
             loss_verb_ce = F.binary_cross_entropy_with_logits(src_logits, target_classes)
-        elif self.verb_loss_type == 'focal':
+        elif self.loss_type == 'focal':
             src_logits = src_logits.sigmoid()
             loss_verb_ce = self._neg_loss(src_logits, target_classes)
 
         losses = {'loss_verb_ce': loss_verb_ce}
         return losses
 
-    def loss_sub_obj_boxes(self, outputs, targets, indices, num_interactions):
+    def loss_sub_obj_boxes(self, outputs, targets, indices, num_att_or_inter,dtype):
+        
+        # if dtype=='att':
+        #     return {'loss_sub_bbox': outputs['pred_obj_boxes'].new_zeros([1],dtype=torch.float32)[0],
+        #             'loss_sub_giou': outputs['pred_obj_boxes'].new_zeros([1],dtype=torch.float32)[0],
+        #             'loss_obj_bbox': outputs['pred_obj_boxes'].new_zeros([1],dtype=torch.float32)[0],
+        #             'loss_obj_giou': outputs['pred_obj_boxes'].new_zeros([1],dtype=torch.float32)[0]}
         assert 'pred_sub_boxes' in outputs and 'pred_obj_boxes' in outputs
         idx = self._get_src_permutation_idx(indices)
         src_sub_boxes = outputs['pred_sub_boxes'][idx]
@@ -292,15 +493,111 @@ class SetCriterionHOI(nn.Module):
         else:
             loss_sub_bbox = F.l1_loss(src_sub_boxes, target_sub_boxes, reduction='none')
             loss_obj_bbox = F.l1_loss(src_obj_boxes, target_obj_boxes, reduction='none')
-            losses['loss_sub_bbox'] = loss_sub_bbox.sum() / num_interactions
+            losses['loss_sub_bbox'] = loss_sub_bbox.sum() / num_att_or_inter
             losses['loss_obj_bbox'] = (loss_obj_bbox * exist_obj_boxes.unsqueeze(1)).sum() / (exist_obj_boxes.sum() + 1e-4)
             loss_sub_giou = 1 - torch.diag(generalized_box_iou(box_cxcywh_to_xyxy(src_sub_boxes),
                                                                box_cxcywh_to_xyxy(target_sub_boxes)))
             loss_obj_giou = 1 - torch.diag(generalized_box_iou(box_cxcywh_to_xyxy(src_obj_boxes),
                                                                box_cxcywh_to_xyxy(target_obj_boxes)))
-            losses['loss_sub_giou'] = loss_sub_giou.sum() / num_interactions
+            losses['loss_sub_giou'] = loss_sub_giou.sum() / num_att_or_inter
             losses['loss_obj_giou'] = (loss_obj_giou * exist_obj_boxes).sum() / (exist_obj_boxes.sum() + 1e-4)
         return losses
+
+    #attribute loss
+    # def loss_att_labels(self, outputs, targets, indices, num_att_or_inter,dtype):
+        
+    #     if dtype=='hoi':
+    #         return {'loss_att_ce': outputs['pred_logits'].new_zeros([1],dtype=torch.float32)[0]}
+    #     assert 'pred_logits' in outputs
+    #     src_logits = outputs['pred_logits']
+
+    #     idx = self._get_src_permutation_idx(indices)
+    #     target_classes_o = torch.cat([t['pos_att_classes'][J] for t, (_, J) in zip(targets, indices)])
+    #     target_classes = torch.zeros_like(src_logits)
+    #     target_classes[idx] = target_classes_o
+
+    #     pos_gt_classes = torch.nonzero(target_classes_o==1)[...,-1]
+    #     # import pdb;pdb.set_trace()
+    #     neg_classes_o = torch.cat([t["neg_att_classes"] for t in targets])
+    #     neg_gt_classes = torch.nonzero(neg_classes_o==1)[...,-1]
+
+    #     inds = get_fed_loss_inds(
+    #         gt_classes=torch.cat([pos_gt_classes,neg_gt_classes]),
+    #         num_sample_cats=50,
+    #         weight=self.fed_loss_weight,
+    #         C=src_logits.shape[2])
+
+    #     if self.loss_type == 'bce':
+    #         loss_att_ce = F.binary_cross_entropy_with_logits(src_logits[...,inds], target_classes[...,inds])
+    #     elif self.loss_type == 'focal':
+    #         src_logits = src_logits.sigmoid()
+    #         loss_att_ce = self._neg_loss(src_logits[...,inds], target_classes[...,inds])
+
+    #     losses = {'loss_att_ce': loss_att_ce}
+    #     return losses
+    
+    # #attribute object loss
+    # def loss_att_obj_labels(self, outputs, targets, indices, num_att_or_inter,dtype, log=True):
+        
+    #     if dtype=='hoi':
+    #         losses = {'loss_att_obj_ce': outputs['pred_obj_logits'].new_zeros([1],dtype=torch.float32)[0]}
+    #         if log:
+    #             losses.update({'obj_att_class_error':outputs['pred_obj_logits'].new_zeros([1],dtype=torch.float32)[0]})
+    #         return losses
+    #     assert 'pred_obj_logits' in outputs
+    #     src_logits = outputs['pred_obj_logits']
+
+    #     idx = self._get_src_permutation_idx(indices)
+    #     target_classes_o = torch.cat([t['labels'][J] for t, (_, J) in zip(targets, indices)])
+    #     target_classes = torch.full(src_logits.shape[:2], self.num_obj_classes,
+    #                                 dtype=torch.int64, device=src_logits.device)
+    #     target_classes[idx] = target_classes_o
+
+    #     loss_obj_ce = F.cross_entropy(src_logits.transpose(1, 2), target_classes, self.empty_weight)
+    #     losses = {'loss_att_obj_ce': loss_obj_ce}
+
+    #     if log:
+    #         losses['obj_att_class_error'] = 100 - accuracy(src_logits[idx], target_classes_o)[0]
+    #     return losses
+
+    # @torch.no_grad()
+    # def loss_att_obj_cardinality(self, outputs, targets, indices, num_att_or_inter,dtype):
+    #     if dtype=='hoi':
+    #         return {'obj_cardinality_error': torch.tensor(0,dtype=torch.float32,device='cuda')}
+    #     pred_logits = outputs['pred_obj_logits']
+    #     device = pred_logits.device
+    #     tgt_lengths = torch.as_tensor([len(v['labels']) for v in targets], device=device)
+    #     card_pred = (pred_logits.argmax(-1) != pred_logits.shape[-1] - 1).sum(1)
+    #     card_err = F.l1_loss(card_pred.float(), tgt_lengths.float())
+    #     losses = {'obj_cardinality_error': card_err}
+    #     return losses
+
+    # def loss_att_obj_boxes(self, outputs, targets, indices, num_att_or_inter,dtype):
+        
+    #     if dtype=='hoi':
+    #         return {'loss_att_obj_bbox': outputs['pred_obj_boxes'].new_zeros([1],dtype=torch.float32)[0],
+    #                   'loss_att_obj_giou': outputs['pred_obj_boxes'].new_zeros([1],dtype=torch.float32)[0]  }
+    #     assert 'pred_obj_boxes' in outputs
+    #     idx = self._get_src_permutation_idx(indices)
+    #     # src_sub_boxes = outputs['pred_sub_boxes'][idx]
+    #     src_obj_boxes = outputs['pred_obj_boxes'][idx]
+    #     target_obj_boxes = torch.cat([t['boxes'][i] for t, (_, i) in zip(targets, indices)], dim=0)
+
+    #     # exist_obj_boxes = (target_obj_boxes != 0).any(dim=1)
+
+    #     losses = {}
+    
+    #     # loss_sub_bbox = F.l1_loss(src_sub_boxes, target_sub_boxes, reduction='none')
+    #     loss_obj_bbox = F.l1_loss(src_obj_boxes, target_obj_boxes, reduction='none')
+    #     # losses['loss_sub_bbox'] = loss_sub_bbox.sum() / num_att_or_inter
+    #     losses['loss_att_obj_bbox'] = (loss_obj_bbox).sum() / num_att_or_inter
+        
+    #     loss_obj_giou = 1 - torch.diag(generalized_box_iou(box_cxcywh_to_xyxy(src_obj_boxes),
+    #                                                         box_cxcywh_to_xyxy(target_obj_boxes)))
+        
+    #     losses['loss_att_obj_giou'] = loss_obj_giou.sum() / num_att_or_inter
+
+    #     return losses
 
     def _neg_loss(self, pred, gt):
         ''' Modified focal loss. Exactly the same as CornerNet.
@@ -337,43 +634,51 @@ class SetCriterionHOI(nn.Module):
         tgt_idx = torch.cat([tgt for (_, tgt) in indices])
         return batch_idx, tgt_idx
 
-    def get_loss(self, loss, outputs, targets, indices, num, **kwargs):
+    def get_loss(self, loss, outputs, targets, indices, num, dtype,**kwargs):
         loss_map = {
             'obj_labels': self.loss_obj_labels,
+            #'att_obj_labels':self.loss_att_obj_labels,
             'obj_cardinality': self.loss_obj_cardinality,
+            #'att_obj_cardinality':self.loss_att_obj_cardinality,
             'verb_labels': self.loss_verb_labels,
-            'sub_obj_boxes': self.loss_sub_obj_boxes
+            #'att_labels': self.loss_att_labels,
+            'sub_obj_boxes': self.loss_sub_obj_boxes,
+            #'obj_att_boxes':self.loss_att_obj_boxes,
         }
+        if loss not in loss_map:
+            import pdb; pdb.set_trace()
         assert loss in loss_map, f'do you really want to compute {loss} loss?'
-        return loss_map[loss](outputs, targets, indices, num, **kwargs)
+        return loss_map[loss](outputs, targets, indices, num, dtype, **kwargs)
 
     def forward(self, outputs, targets):
         outputs_without_aux = {k: v for k, v in outputs.items() if k != 'aux_outputs'}
-
+        dtype=outputs['type']
+        dataset=outputs['dataset']
+                
         # Retrieve the matching between the outputs of the last layer and the targets
-        indices = self.matcher(outputs_without_aux, targets)
+        indices = self.matcher(outputs_without_aux, targets, dtype)
 
-        num_interactions = sum(len(t['obj_labels']) for t in targets)
-        num_interactions = torch.as_tensor([num_interactions], dtype=torch.float, device=next(iter(outputs.values())).device)
+        num_inter = sum(len(t['obj_labels']) for t in targets) if outputs['type'] =='hoi' else sum(len(t['labels']) for t in targets)
+        num_inter = torch.as_tensor([num_inter], dtype=torch.float, device=next(iter(outputs.values())).device)
         if is_dist_avail_and_initialized():
-            torch.distributed.all_reduce(num_interactions)
-        num_interactions = torch.clamp(num_interactions / get_world_size(), min=1).item()
-
+            torch.distributed.all_reduce(num_inter)
+        num_inter = torch.clamp(num_inter / get_world_size(), min=1).item()
+        
         # Compute all the requested losses
         losses = {}
         for loss in self.losses:
-            losses.update(self.get_loss(loss, outputs, targets, indices, num_interactions))
+            losses.update(self.get_loss(loss, outputs, targets, indices,num_inter,dtype))
 
         # In case of auxiliary losses, we repeat this process with the output of each intermediate layer.
         if 'aux_outputs' in outputs:
             for i, aux_outputs in enumerate(outputs['aux_outputs']):
-                indices = self.matcher(aux_outputs, targets)
+                indices = self.matcher(aux_outputs, targets, dtype)
                 for loss in self.losses:
                     kwargs = {}
                     if loss == 'obj_labels':
                         # Logging is enabled only for the last layer
                         kwargs = {'log': False}
-                    l_dict = self.get_loss(loss, aux_outputs, targets, indices, num_interactions, **kwargs)
+                    l_dict = self.get_loss(loss, aux_outputs, targets, indices, num_inter,dtype, **kwargs)
                     l_dict = {k + f'_{i}': v for k, v in l_dict.items()}
                     losses.update(l_dict)
 
@@ -441,7 +746,7 @@ class SetCriterionATT(nn.Module):
     def loss_att_labels(self, outputs, targets, log=True):
         
         #attribute predictions
-        src_logits = outputs['att_preds'] 
+        src_logits = outputs
 
         #attribute target
         target_classes = torch.zeros_like(src_logits)
@@ -502,8 +807,7 @@ class SetCriterionATT(nn.Module):
         loss_map = {
             'att_labels':self.loss_att_labels
         }
-
-        return loss_map[loss](outputs,targets,**kwargs)
+        return loss_map['att_labels'](outputs,targets,**kwargs) #outputs.shape : torch.Size([23, 620])
 
     def postprocess_att(self, targets):
 
@@ -531,6 +835,7 @@ class SetCriterionATT(nn.Module):
 
         #compute all requested losses
         losses = {}
+        #outputs
         for loss in self.losses:
             losses.update(self.get_loss(loss, outputs, targets))
 
